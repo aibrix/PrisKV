@@ -1,0 +1,9 @@
+# build
+setuptools
+pybind11
+
+# test
+netifaces
+
+# lint
+yapf==0.32.0
