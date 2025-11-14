@@ -1,12 +1,14 @@
 
 # PrisKV
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 PrisKV is specifically designed for modern high-performance computing (HPC) and
 artificial intelligence (AI) computing. It solely supports RDMA. PrisKV also
 supports GDR (GPU Direct RDMA), enabling the value of a key to be directly
 transferred between PrisKV and the GPU.
 
-# Howto
+# How to Build
 
 To prepare build environment:
 
@@ -36,7 +38,7 @@ To rebuild PrisKV:
   make rebuild
   ```
 
-After a successful build, launch the server with anonymouse memory:
+After a successful build, launch the server with anonymous memory:
 
   ```bash
   ./server/priskv-server -a 192.168.122.1 -a fdbd:ff1:ce00:4c7:156a:a66b:b407:19c4 --acl fdbd:ff1:ce00:4c7:156a:a66b:b407:19c4/120
@@ -79,7 +81,7 @@ To create a file on hugetlbfs:
   ./priskv-memfile -o create -f /dev/hugepages/memfile --max-keys 1024 --max-key-length 128 --value-block-size 4096 --value-blocks 4096
   ```
 
-To query infomation of a priskv memory file:
+To query information of a priskv memory file:
 
   ```bash
   ./priskv-memfile -o info -f /dev/hugepages/memfile
@@ -88,14 +90,14 @@ To query infomation of a priskv memory file:
 ## step 2 - launch priskv-server with priskv memory file
 
   ```bash
-  ./priskv-server -a 192.168.122.1 -A localhost -f /run/memfile`
+  ./priskv-server -a 192.168.122.1 -A localhost -f /run/memfile
   ```
 
 If you want to use http server for getting information, please run
 
   ```bash
   # http server default port 18512
-  ./priskv-server -a 192.168.122.1 -A localhost -f /run/memfile`
+  ./priskv-server -a 192.168.122.1 -A localhost -f /run/memfile
   ```
 
 , then http server will listen on localhost:18512. 
@@ -104,7 +106,7 @@ If you want to use https server, please refer to [https server](scripts/certific
 
 # RXE
 
-To setup a soft RDMA envirounment:
+To setup a soft RDMA environment:
 
   ```bash
   rdma link add rxe_eth0 type rxe netdev eth0
@@ -112,7 +114,7 @@ To setup a soft RDMA envirounment:
 
 # Valkey Benchmark
 
-If you want to compare the performance between HPVK and Valkey, just run the Valkey benchmark:
+If you want to compare the performance between PrisKV and Valkey, just run the Valkey benchmark:
 
   ```bash
   git submodule init && git submodule update
@@ -176,3 +178,11 @@ If you want to build packages for different environment at the same time, you co
   ```bash
   make pkg-ubuntu1804 pkg-ubuntu2004 -j
   ```
+
+# Contributing
+
+Contributions are welcome! Please feel free to submit issues or pull requests to help improve PrisKV.
+
+# License
+
+PrisKV is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
