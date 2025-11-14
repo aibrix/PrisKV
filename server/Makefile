@@ -1,5 +1,5 @@
 VERSION = 0.1
-LIBS = -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring
+LIBS = -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis
 INCFLAGS = -I../include -I../client
 CFLAGS = -fPIC -Wall -g $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code
 FMT = clang-format-19
@@ -43,7 +43,7 @@ COMMON_LIB_DEPS := $(COMMON_LIB_OBJS:%.o=%.d)
 .PHONY: all test rebuild clean format man install
 
 # default target MUST be the first target
-all: $(PRISKV_SERVER_TARGETS) man
+all: $(PRISKV_SERVER_TARGETS) test man
 
 LIBJSONC_DIR = ../thirdparty/json-c
 include ../lib/libjsonc.mk
