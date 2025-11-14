@@ -14,7 +14,7 @@
 
 /*
  * Authors:
- *   Jinlong Xuan <xuanjinlong@bytedance.com>
+ *   Jinlong Xuan <15563983051@163.com>
  */
 
 #define _DEFAULT_SOURCE

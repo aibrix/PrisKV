@@ -21,7 +21,7 @@ endif
 all: server client cluster pyclient pyclusterclient
 
 version:
-	@echo "PRISKV Version: $(PRISKV_VERSION)"
+	@echo "PrisKV Version: $(PRISKV_VERSION)"
 	sed 's/__PRISKV_VERSION__ "unknown"/__PRISKV_VERSION__ "$(PRISKV_VERSION)"/g' include/priskv-version.h.in > include/priskv-version.h
 
 server: version client

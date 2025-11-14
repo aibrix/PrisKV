@@ -49,7 +49,7 @@ class PriskvBenchmark:
 
         self.client = priskv.PriskvClient(args.raddr, args.rport, args.laddr,
                                       args.lport, 1)
-        assert self.client != 0, "Failed to connect to PRISKV server."
+        assert self.client != 0, "Failed to connect to PrisKV server."
 
         self.shared_key = "1" * self.key_len
 
@@ -92,7 +92,7 @@ class PriskvBenchmark:
         while True:
             ret = self.exec_op()
             if ret != 0:
-                print("PRISKV benchmark failed: %d", ret)
+                print("PrisKV benchmark failed: %d", ret)
                 return
 
             self.req_count += 1
@@ -243,7 +243,7 @@ class PRISKVBenchmarkNumpy(PriskvBenchmark):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PRISKV Benchmark')
+    parser = argparse.ArgumentParser(description='PrisKV Benchmark')
 
     parser.add_argument("--raddr",
                         type=str,

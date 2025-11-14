@@ -1,10 +1,10 @@
 
-# PRISKV
+# PrisKV
 
-PRISKV is specifically designed for modern high-performance computing (HPC) and
-artificial intelligence (AI) computing. It solely supports RDMA. PRISKV also
+PrisKV is specifically designed for modern high-performance computing (HPC) and
+artificial intelligence (AI) computing. It solely supports RDMA. PrisKV also
 supports GDR (GPU Direct RDMA), enabling the value of a key to be directly
-transferred between PRISKV and the GPU.
+transferred between PrisKV and the GPU.
 
 # Howto
 
@@ -20,7 +20,7 @@ To prepare build environment:
   pip3 install pybind11 yapf==0.32.0
   ```
 
-To build PRISKV:
+To build PrisKV:
 
   ```bash
   make
@@ -30,7 +30,7 @@ To build PRISKV:
   make PRISKV_USE_ACL=1 # benchmark with NPU support
   ```
 
-To rebuild PRISKV:
+To rebuild PrisKV:
 
   ```bash
   make rebuild
@@ -45,7 +45,7 @@ After a successful build, launch the server with anonymouse memory:
 # ACL
 
 An access control list (ACL) is a list of rules that specifies which clients are granted
-access to a PRISKV server.
+access to a PrisKV server.
 
   ```bash
   ./server/priskv-server --acl fdbd:ff1:ce00:4c7:156a:a66b:b407:19c4 # A single IPv6 address style
@@ -58,7 +58,7 @@ access to a PRISKV server.
 
 # Memory file
 
-PRISKV supports file-mapping based memory. priskv-server tries to load Key-Value
+PrisKV supports file-mapping based memory. priskv-server tries to load Key-Value
 from file on startup. Once priskv-server crashes or gets killed, it will recover
 on restart.
 
@@ -122,7 +122,7 @@ If you want to compare the performance between HPVK and Valkey, just run the Val
 
 # Python Client(PyPRISKV)
 
-PRISKV provides a Python client for easy access. To install the Python client:
+PrisKV provides a Python client for easy access. To install the Python client:
 
 If you install using source code, run:
 

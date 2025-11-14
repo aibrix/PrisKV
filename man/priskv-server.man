@@ -1,5 +1,5 @@
 .\" priskv-server man page
-.TH PRISKV-SERVER 1 "__PRISKV_VERSION__" "Volcano Engine PRISKV"
+.TH PrisKV-SERVER 1 "__PRISKV_VERSION__" "Volcano Engine PrisKV"
 
 .SH NAME
 \fBpriskv-server \fP\- High Performance Key-Value storage server
@@ -14,12 +14,12 @@
     [\fB\-\-http\-verify\-client\fP [off/optional/on]] [\fB\-h/\-\-help\fP]
 
 .SH DESCRIPTION
-PRISKV is specifically designed for modern high-performance computing (HPC) 
+PrisKV is specifically designed for modern high-performance computing (HPC) 
 and artificial intelligence (AI) computing. It solely supports RDMA. 
-PRISKV also supports GDR (GPU Direct RDMA), enabling the value of a key to 
-be directly transferred between PRISKV and the GPU.
+PrisKV also supports GDR (GPU Direct RDMA), enabling the value of a key to 
+be directly transferred between PrisKV and the GPU.
 .sp
-\fBpriskv-server\fP is a server that implements the PRISKV protocol.
+\fBpriskv-server\fP is a server that implements the PrisKV protocol.
 
 .SH OPTIONS
 \fB\-a/\-\-addr\fP ADDR

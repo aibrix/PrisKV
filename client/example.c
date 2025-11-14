@@ -251,7 +251,7 @@ static int priskv_async_test()
     priskv_sgl sgl;
     int done = 0;
 
-    /* Data flow: GPU Memory -> PRISKV database */
+    /* Data flow: GPU Memory -> PrisKV database */
     sgl.iova = (uint64_t)dev_sendbuf;
     sgl.length = value_size;
     sgl.mem = dev_sendmem;
@@ -259,7 +259,7 @@ static int priskv_async_test()
     assert(wait_for_done(&done, "SET") == 0);
     REPORT("async", "SET", key, value);
 
-    /* Data flow: PRISKV database -> CPU Memory */
+    /* Data flow: PrisKV database -> CPU Memory */
     done = 0;
     sgl.iova = (uint64_t)host_recvbuf;
     sgl.length = value_size;
@@ -284,14 +284,14 @@ static int priskv_sync_test()
     priskv_sgl sgl;
     uint32_t valuelen = 0;
 
-    /* Data flow: GPU Memory -> PRISKV database */
+    /* Data flow: GPU Memory -> PrisKV database */
     sgl.iova = (uint64_t)dev_sendbuf;
     sgl.length = value_size;
     sgl.mem = dev_sendmem;
     assert(priskv_set(client, key, &sgl, 1, PRISKV_KEY_MAX_TIMEOUT) == PRISKV_STATUS_OK);
     REPORT("sync", "SET", key, value);
 
-    /* Data flow: PRISKV database -> CPU Memory */
+    /* Data flow: PrisKV database -> CPU Memory */
     sgl.iova = (uint64_t)host_recvbuf;
     sgl.length = value_size;
     sgl.mem = host_recvmem;

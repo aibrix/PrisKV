@@ -545,7 +545,7 @@ int main(int argc, char *argv[])
     linenoiseSetHintsCallback(hints);
 
     while (!g_exit) {
-        line = linenoise("PRISKV> ");
+        line = linenoise("PrisKV> ");
         if (line == NULL) {
             break;
         }

@@ -358,8 +358,8 @@ PYBIND11_MODULE(_priskv_client, m)
         .def_readwrite("length", &priskv_sgl_wrapper::length)
         .def_readwrite("mem", &priskv_sgl_wrapper::mem);
 
-    m.def("connect", &priskv_connect_wrapper, "A function to connect to PRISKV server.");
-    m.def("close", &priskv_close_wrapper, "A function to close connection from PRISKV server.");
+    m.def("connect", &priskv_connect_wrapper, "A function to connect to PrisKV server.");
+    m.def("close", &priskv_close_wrapper, "A function to close connection from PrisKV server.");
     m.def("reg_memory", &priskv_reg_memory_wrapper, "A function to register memory.");
     m.def("batch_reg_memory", &priskv_batch_reg_memory_wrapper, "A function to batch register memory.");
     m.def("dereg_memory", &priskv_dereg_memory_wrapper, "A function to dereg memory.");

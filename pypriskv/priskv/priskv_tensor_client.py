@@ -33,7 +33,7 @@ from .priskv_client import PriskvClient
 class PriskvTensorClient(PriskvClient):
     '''PriskvTensorClient:
 
-    The client of PRISKV is specifically used for storing tensors.
+    The client of PrisKV is specifically used for storing tensors.
     Args:
         raddr (str): remote address
         rport (int): remote port

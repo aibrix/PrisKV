@@ -164,7 +164,7 @@ static int priskv_kvmanage_do_copy(priskv_kvmanage_context *ctx)
         priskv_set_async(ctx->client, key, &sgl, 1, PRISKV_KEY_MAX_TIMEOUT, (uint64_t)ctx, priskv_set_cb);
     if (status != PRISKV_RESP_STATUS_OK) {
         priskv_log_error(
-            "KVmanage(copy): failed to set key %s to remote PRISKV server, status (%d): %s\n",
+            "KVmanage(copy): failed to set key %s to remote PrisKV server, status (%d): %s\n",
             (const char *)key, status, priskv_resp_status_str(status));
         ret = -1;
         goto exit;
@@ -184,7 +184,7 @@ static int priskv_kvmanage_do_delete(priskv_kvmanage_context *ctx)
     status = priskv_delete_key(g_kv, (uint8_t *)key, keylen);
     if (status != PRISKV_RESP_STATUS_OK) {
         priskv_log_error(
-            "KVmanage(delete): failed to delete key %s from local PRISKV server, status (%d): %s\n",
+            "KVmanage(delete): failed to delete key %s from local PrisKV server, status (%d): %s\n",
             (const char *)key, status, priskv_resp_status_str(status));
         return -1;
     }
@@ -196,7 +196,7 @@ static int priskv_kvmanage_task_copy(priskv_kvmanage_context *ctx)
 {
     /* skip the first time */
     if (ctx->step > 1) {
-        priskv_log_debug("KVmanage: successfully %s key %s to remote PRISKV server\n",
+        priskv_log_debug("KVmanage: successfully %s key %s to remote PrisKV server\n",
                        action2str(ctx->action), (const char *)ctx->keys[ctx->nsuccess]);
 
         if (++ctx->nsuccess == ctx->nkeys) {
@@ -237,7 +237,7 @@ int priskv_kvmanage_do_action(priskv_kvmanage_action action, const char *addr, i
 
     ctx->client = priskv_connect(addr, port, NULL, 0, 0);
     if (!ctx->client) {
-        priskv_log_error("KVmanage: cannot connect to remote PRISKV server, addr: %s, port: %d\n", addr,
+        priskv_log_error("KVmanage: cannot connect to remote PrisKV server, addr: %s, port: %d\n", addr,
                        port);
         free(ctx);
         return -1;

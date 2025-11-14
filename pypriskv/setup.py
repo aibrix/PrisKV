@@ -42,10 +42,10 @@ setup(
     name='priskv',
     version='0.0.2',
     description=
-    '''This is PRISKV's client. PRISKV is specifically designed for modern high-performance '''
+    '''This is PrisKV's client. PrisKV is specifically designed for modern high-performance '''
     '''computing (HPC) and artificial intelligence (AI) computing. It solely supports RDMA. '''
-    '''PRISKV also supports GDR (GPU Direct RDMA), enabling the value of a key to be directly '''
-    '''transferred between PRISKV and the GPU.''',
+    '''PrisKV also supports GDR (GPU Direct RDMA), enabling the value of a key to be directly '''
+    '''transferred between PrisKV and the GPU.''',
     # package_data={
     #     'priskv._priskv': ['*.pyi', '*.so'],
     # },

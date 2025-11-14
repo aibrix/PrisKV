@@ -2,30 +2,30 @@ Name:           priskv
 Version:        20250327
 Release:        1%{?dist}
 Source0:        %{name}.tar
-Summary:        RPM packages for PRISKV server, client and some utilities.
+Summary:        RPM packages for PrisKV server, client and some utilities.
 License:        Beijing Volcano Engine Technology Ltd - 2024. All rights reserved.
 BuildRequires:  git gcc gcc-c++ make cmake librdmacm rdma-core-devel libibverbs ncurses-devel libmount-devel libevent-devel openssl-devel
 
 %description
-PRISKV is specifically designed for modern high-performance computing (HPC) \
+PrisKV is specifically designed for modern high-performance computing (HPC) \
 and artificial intelligence (AI) computing. It solely supports RDMA. \
-PRISKV also supports GDR (GPU Direct RDMA), enabling the value of a key to \
-be directly transferred between PRISKV and the GPU.
+PrisKV also supports GDR (GPU Direct RDMA), enabling the value of a key to \
+be directly transferred between PrisKV and the GPU.
 
 %package server
-Summary:        RPM packages for PRISKV server.
+Summary:        RPM packages for PrisKV server.
 
 %description server
 priskv-server is a server that provides a key-value store service.
 
 %package client
-Summary:        RPM packages for PRISKV client.
+Summary:        RPM packages for PrisKV client.
 
 %description client
 priskv-client is a client that provides a key-value store service.
 
 %package pyclient
-Summary:        RPM packages for PRISKV python client.
+Summary:        RPM packages for PrisKV python client.
 Requires:       python3
 
 %description pyclient

@@ -1,11 +1,11 @@
-Contributing to PRISKV
+Contributing to PrisKV
 ====================
 
 Welcome and thank you for wanting to contribute!
 
 # Project governance
 
-The PRISKV project is created by Bytedance, and maintained by
+The PrisKV project is created by Bytedance, and maintained by
  *   Jinlong Xuan <15563983051@163.com>
  *   Xu Ji <sov.matrixac@gmail.com>
  *   Yu Wang <wangyu.steph@bytedance.com>

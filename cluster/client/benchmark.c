@@ -2456,14 +2456,14 @@ static int benchmark_print_info(bool summary)
     strftime(now_str, sizeof(now_str), "%Y-%m-%d %H:%M:%S", t);
 
     if (summary) {
-        printf("PRISKV Benchmark <%s>\n", now_str);
+        printf("PrisKV Benchmark <%s>\n", now_str);
         printf("server=[%s %d] jobs=%d op=%s\nkey-len=[%ld,%ld] value-len=[%ld,%ld] "
                "iodepth=%d\ninterval=%lds driver=%s device=%s\n",
                raddr, rport, g_threads, job_get_op_str(g_op), g_key_min_len, g_key_max_len,
                g_value_min_len, g_value_max_len, g_iodepth, g_interval, g_driver,
                priskv_get_mem_type_str(g_mem_type));
     } else {
-        printw("PRISKV Benchmark <%s>\n", now_str);
+        printw("PrisKV Benchmark <%s>\n", now_str);
         printw("server=[%s %d] jobs=%d op=%s\nkey-len=[%ld,%ld] value-len=[%ld,%ld] "
                "iodepth=%d\ninterval=%lds driver=%s device=%s\n",
                raddr, rport, g_threads, job_get_op_str(g_op), g_key_min_len, g_key_max_len,

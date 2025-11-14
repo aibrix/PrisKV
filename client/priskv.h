@@ -68,7 +68,7 @@ int priskv_get_fd(priskv_client *client);
  */
 int priskv_process(priskv_client *client, uint32_t event);
 
-/* PRISKV Scatter Gather List (SGL) is a data structure in memory address space used to describe a
+/* PrisKV Scatter Gather List (SGL) is a data structure in memory address space used to describe a
  * data buffer. The memory address is either CPU memory address or GPU memory address (please
  * see GPU Direct RDMA (GDR) for more informations). */
 typedef struct priskv_sgl {

@@ -13,10 +13,10 @@ def run_test(prog, result_list, index):
                          stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
     if p.wait():
-        print("PRISKV Unit test %s [FAILED]" % prog, end='')
+        print("PrisKV Unit test %s [FAILED]" % prog, end='')
         result_list[index] = 1
     else:
-        print("PRISKV Unit test %s [OK]" % prog, end='')
+        print("PrisKV Unit test %s [OK]" % prog, end='')
         result_list[index] = 0
     end = time.time()
     elapsed_time = (end - start) * 1000 * 1000
@@ -36,7 +36,7 @@ def priskv_unit_test():
         "./server/test/test-slab"
     ]
 
-    print("---- PRISKV UNIT TEST ----")
+    print("---- PrisKV UNIT TEST ----")
     result_list = [0] * len(progs)
     threads = []
 
@@ -48,7 +48,7 @@ def priskv_unit_test():
     for thread in threads:
         thread.join()
 
-    print("---- PRISKV UNIT TEST DONE ----")
+    print("---- PrisKV UNIT TEST DONE ----")
     if any(result_list):
         return 1
     return 0

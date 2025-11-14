@@ -57,7 +57,7 @@ class PriskvClient:
 
         self.conn = client.connect(raddr, rport, laddr, lport, nqueue)
         if self.conn == 0:
-            raise RuntimeError("Failed to connect to PRISKV server.")
+            raise RuntimeError("Failed to connect to PrisKV server.")
 
         self._conn_epoll_fd = client.get_epoll_fd(self.conn)
         if self._conn_epoll_fd < 0:
