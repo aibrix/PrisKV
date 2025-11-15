@@ -36,7 +36,7 @@ cluster: client
 pyclient: client
 	make -C pypriskv all
 
-pyclusterclient: client
+pyclusterclient: cluster
 	make -C pypriskvcluster all
 
 test: version

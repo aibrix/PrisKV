@@ -1,0 +1,104 @@
+# Copyright (c) 2025 ByteDance Ltd. and/or its affiliates
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: PrisKV CI
+
+on:
+  push:
+    branches: [ "main", "release-*" ]
+    paths-ignore:
+      - 'docker/'
+      - 'man/'
+      - '**/*.spec'
+      - '**/*.md'
+      - '**/*.txt'
+  pull_request:
+    branches: [ "main" ]
+    paths-ignore:
+      - 'docker/'
+      - 'man/'
+      - '**/*.spec'
+      - '**/*.md'
+      - '**/*.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.event.number || github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+      - name: Pre Clean
+        run: |
+          find . -type f \( -name '*.d' -o -name '*.o' -o -name 'a.out' -o -name '*.exe' \) -delete
+      - name: Set Up Python Environment ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check Out Code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Submodule Summary
+        run: |
+          git submodule > git-modules.txt
+          cat git-modules.txt
+      - name: Install Dependencies
+        run: |
+          sudo apt update -y
+          sudo apt install -y ca-certificates \
+                              gcc \
+                              g++ \
+                              make \
+                              cmake \
+                              binutils \
+                              libibverbs-dev \
+                              librdmacm-dev \
+                              libevent-dev \
+                              libssl-dev \
+                              libmount-dev \
+                              libncurses5-dev \
+                              libonig-dev \
+                              libhiredis-dev \
+                              liburing-dev
+
+          # install clang-format-19
+          sudo curl -L https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-46b8640/clang-format-19_linux-amd64 --output /usr/bin/clang-format-19
+          sudo chmod +x /usr/bin/clang-format-19
+
+          # install python dependencies
+          pip install -r requirements.txt
+      - name: Format Check
+        run: |
+          make format
+      - name: Build
+        run: |
+          make
+          make test
+      - name: Unit Tests
+        run: |
+          python run_unit_test.py
+      - name: E2E Tests
+        run: |
+          python run_e2e_test.py
