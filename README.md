@@ -8,7 +8,7 @@ artificial intelligence (AI) computing. It solely supports RDMA. PrisKV also
 supports GDR (GPU Direct RDMA), enabling the value of a key to be directly
 transferred between PrisKV and the GPU.
 
-## Building
+## How to Build
 
 ### Prerequisites
 
@@ -44,6 +44,8 @@ This creates a soft RDMA device `rxe_eth0` on top of your Ethernet interface `et
 
 ```bash
 make                      # Standard build
+
+# CUDA or NPU build only affects benchmark lib, rest is same as standard build
 make PRISKV_USE_CUDA=1    # Build with CUDA support (for GPU Direct RDMA)
 make PRISKV_USE_ACL=1     # Build with NPU support (for Ascend NPU acceleration)
 make rebuild              # Clean rebuild
@@ -161,15 +163,11 @@ PrisKV supports file-mapping based memory for persistence. The server loads key-
 
 #### Step 1: Create a Memory File
 
-**Create on tmpfs:**
-
 ```bash
+# Create on tmpfs:
 ./server/priskv-memfile -o create -f /run/memfile --max-keys 1024 --max-key-length 128 --value-block-size 4096 --value-blocks 4096
-```
 
-**Create on hugetlbfs:**
-
-```bash
+# Create on hugetlbfs
 ./server/priskv-memfile -o create -f /dev/hugepages/memfile --max-keys 1024 --max-key-length 128 --value-block-size 4096 --value-blocks 4096
 ```
 
@@ -179,36 +177,6 @@ PrisKV supports file-mapping based memory for persistence. The server loads key-
 ./server/priskv-memfile -o info -f /dev/hugepages/memfile
 ```
 
-#### priskv-memfile Command-Line Arguments
-
-```
-  -o, --op OPERATION
-        Operation to perform: create or info (default: info)
-
-  -f, --memfile PATH
-        Memory file path from tmpfs/hugetlbfs
-
-  -k, --max-keys KEYS
-        Maximum count of KV (default: 65536, max: 16777216)
-
-  -K, --max-key-length BYTES
-        Maximum bytes of a key (default: 128, max: 4096)
-
-  -v, --value-block-size BYTES
-        Block size of minimal value in bytes (default: 4096, max: 1048576)
-
-  -b, --value-blocks BLOCKS
-        Count of value blocks, must be power of 2 (default: 65536, max: 16777216)
-
-  -t, --threads THREADS
-        Number of worker threads to clean memory (default: 0)
-
-  -l, --log-level LEVEL
-        Log level: error, warn, notice (default), info, or debug
-
-  -h, --help
-        Show help message
-```
 
 #### Step 2: Launch Server with Memory File
 
