@@ -42,10 +42,10 @@
 #define NUM_THREADS 8
 #define MAX_KEYS_PER_THREAD (128 * 1024)
 #define MAX_KEYS (MAX_KEYS_PER_THREAD * NUM_THREADS)
-#define MAX_KEY_LENGHT 128
+#define MAX_KEY_LENGTH 64
 #define VALUE_BLOCK_SIZE 1024
-#define VALUE_BLOCKS (MAX_KEYS * 16)
-#define MAX_VALUE_LENGTH (VALUE_BLOCK_SIZE * 16)
+#define VALUE_BLOCKS (MAX_KEYS * 8)
+#define MAX_VALUE_LENGTH (VALUE_BLOCK_SIZE * 8)
 
 typedef struct test_kv {
     uint16_t keylen;
@@ -72,7 +72,7 @@ static void *test_kv_gen(void *arg)
     // printf("GEN KV: thread %d\n", thdid);
     for (uint32_t i = 0; i < MAX_KEYS_PER_THREAD; i++) {
         test_kv *tkv = &test_kvs[i + MAX_KEYS_PER_THREAD * thdid];
-        tkv->keylen = priskv_rdtsc() % (MAX_KEY_LENGHT / 2) + MAX_KEY_LENGHT / 2;
+        tkv->keylen = priskv_rdtsc() % (MAX_KEY_LENGTH / 2) + MAX_KEY_LENGTH / 2;
         tkv->key = calloc(1, tkv->keylen);
         priskv_random_string(tkv->key, tkv->keylen);
 
@@ -253,10 +253,10 @@ int main()
     test_kvs = calloc(MAX_KEYS, sizeof(test_kv));
     assert(test_kvs);
 
-    key_base = calloc(MAX_KEYS, priskv_mem_key_size(MAX_KEY_LENGHT));
+    key_base = calloc(MAX_KEYS, priskv_mem_key_size(MAX_KEY_LENGTH));
     value_base = calloc(1, priskv_buddy_mem_size(VALUE_BLOCKS, VALUE_BLOCK_SIZE));
     kv =
-        priskv_new_kv(key_base, value_base, MAX_KEYS, MAX_KEY_LENGHT, VALUE_BLOCK_SIZE, VALUE_BLOCKS);
+        priskv_new_kv(key_base, value_base, MAX_KEYS, MAX_KEY_LENGTH, VALUE_BLOCK_SIZE, VALUE_BLOCKS);
     assert(kv);
 
     for (uint32_t i = 0; i < NUM_THREADS; i++) {
