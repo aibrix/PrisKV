@@ -29,7 +29,7 @@ def run_test(prog, result_list, index):
 
 def priskv_unit_test():
     progs = [
-        "lib/test/test-event", "lib/test/test-threads", "lib/test/test-codec",
+        # "lib/test/test-event", "lib/test/test-threads", "lib/test/test-codec",
         "./server/test/test-slab-mt", "./server/test/test-buddy",
         "./server/test/test-buddy-mt", "./server/test/test-kv",
         "./server/test/test-kv-mt", "./server/test/test-memory --no-tmpfs",

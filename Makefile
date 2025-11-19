@@ -18,7 +18,7 @@ endif
 
 .PHONY: all server client cluster test rebuild clean format pyclient pyclusterclient
 
-all: server client cluster pyclient pyclusterclient
+all: server client cluster pyclient pyclusterclient test
 
 version:
 	@echo "PrisKV Version: $(PRISKV_VERSION)"
