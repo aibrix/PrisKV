@@ -22,9 +22,7 @@
 #   Changqi Lu <luchangqi.123@bytedance.com>
 #   Enhua Zhou <zhouenhua@bytedance.com>
 
-
 from .priskv_client import PriskvClient
-from .priskv_tensor_client import PriskvTensorClient
 from ._priskv import SGL
 
-__all__ = ["PriskvClient", "PriskvTensorClient", "SGL"]
+__all__ = ["PriskvClient", "SGL"]

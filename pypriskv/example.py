@@ -31,12 +31,10 @@ class PriskvExample():
     def __init__(self, args):
         self.raddr = args.raddr
         self.rport = args.rport
-        self.laddr = args.laddr
-        self.lport = args.lport
+        self.password = args.password
 
         ######## PriskvClient ########
-        raw_client = priskv.PriskvClient(self.raddr, self.rport, self.laddr,
-                                     self.lport, 1)
+        raw_client = priskv.PriskvClient(self.raddr, self.rport, self.password)
         assert (raw_client != 0)
 
         self.raw_client = raw_client
@@ -55,9 +53,9 @@ class PriskvExample():
         ret = self.raw_client.set("key", self.sgl)
         assert (ret == 0)
 
-        # test key
-        ret = self.raw_client.test("key")
-        assert (ret == True)
+        # exists key
+        ret = self.raw_client.exists("key")  # self.reg_buf_bytes)
+        assert (ret == 0)
 
     def clear(self):
         # delete key
@@ -70,64 +68,6 @@ class PriskvExample():
 
         # close conn
         self.raw_client.close()
-
-
-class PriskvTorchExample(PriskvExample):
-
-    def __init__(self, args):
-        import torch
-
-        super().__init__(args)
-
-        # register mr
-        self.reg_buf = torch.rand((1024 * 4), dtype=torch.float32).to("cuda:0")
-        self.reg_buf_bytes = self.reg_buf.element_size() * self.reg_buf.numel()
-
-    def get_ptr(self):
-        super().get_ptr()
-        return self.reg_buf.data_ptr()
-
-    def run_example(self):
-        import torch
-
-        super().run_example()
-
-        # clear reg_buf
-        reg_buf_copy = self.reg_buf.clone()
-        self.reg_buf.zero_()
-
-        # get key-value
-        # database -> device
-        ret = self.raw_client.get("key", self.sgl, self.reg_buf_bytes)
-        assert (ret == 0)
-
-        # data consistency verification
-        assert (torch.equal(reg_buf_copy, self.reg_buf))
-
-        self.run_priskv_tensor_client()
-
-    def run_priskv_tensor_client(self):
-        import torch
-
-        ######## PriskvTensorClient ########
-        # set
-        tensor_client = priskv.PriskvTensorClient(self.raddr, self.rport,
-                                              self.laddr, self.lport, 1)
-        assert (tensor_client != 0)
-        set_buf = torch.rand((1024 * 4), dtype=torch.float32).to("cuda:0")
-        ret = tensor_client.set("key", set_buf)
-        assert (ret == 0)
-
-        # get
-        get_buf = torch.zeros((1024 * 4), dtype=torch.float32).to("cuda:0")
-        ret = tensor_client.get("key", get_buf)
-        assert (ret == 0)
-
-        # data consistency verification
-        assert (torch.equal(get_buf, set_buf))
-
-        # close conn
-        tensor_client.close()
 
 
 class PriskvNumpyExample(PriskvExample):
@@ -169,10 +109,7 @@ class PriskvNumpyExample(PriskvExample):
 
 
 def example(args):
-    if args.torch:
-        priskv_example = PriskvTorchExample(args)
-    else:
-        priskv_example = PriskvNumpyExample(args)
+    priskv_example = PriskvNumpyExample(args)
 
     priskv_example.run_example()
     priskv_example.clear()
@@ -189,21 +126,13 @@ def main():
 
     parser.add_argument("--rport",
                         type=int,
-                        default=18512,
-                        help="remote port, default 18512")
+                        default=6379,
+                        help="remote port, default 6379")
 
-    parser.add_argument(
-        "--laddr",
-        type=str,
-        default=None,
-        help="local address, default None (auto chosen by system)")
-
-    parser.add_argument("--lport",
-                        type=int,
-                        default=0,
-                        help="local port, default 0 (any)")
-
-    parser.add_argument("--torch", action="store_true", default=False)
+    parser.add_argument("--password",
+                        type=str,
+                        default="kvcache-redis",
+                        help="password, default kvcache-redis")
 
     args = parser.parse_args()
     example(args)

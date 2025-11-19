@@ -36,8 +36,6 @@ cluster: client
 pyclient: client
 	make -C pypriskv all
 
-pyclusterclient: client
-	make -C pypriskvcluster all
 
 test: version
 	make -C server test
@@ -52,7 +50,6 @@ clean: version
 	make -C cluster clean
 	make -C lib clean
 	make -C pypriskv clean
-	make -C pypriskvcluster clean
 	rm -f include/priskv-version.h
 
 yapf_check:
@@ -85,11 +82,6 @@ pyclient-pkg: pyclient
 	mkdir -p output/$(__OS_NAME)
 
 	mv pypriskv/dist/priskv-*.whl output/$(__OS_NAME)
-
-prisclient-pkg: pyclusterclient
-	mkdir -p output/$(__OS_NAME)
-
-	mv pypriskvcluster/dist/pris-*.whl output/$(__OS_NAME)
 
 pkg-clean:
 ifeq ($(__OS_TYPE), redhat)

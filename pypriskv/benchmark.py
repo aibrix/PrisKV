@@ -36,7 +36,6 @@ class PriskvBenchmark:
     def __init__(self, args):
         self.op_name = args.operation
         self.mem_type = args.mem_type
-        self.torch = args.torch
 
         self.key_len = args.key_len
         self.value_len = align_down(args.value_len, args.aligned_len)
@@ -47,9 +46,8 @@ class PriskvBenchmark:
         self.interval_ns = args.interval
         self.runtime = args.runtime
 
-        self.client = priskv.PriskvClient(args.raddr, args.rport, args.laddr,
-                                      args.lport, 1)
-        assert self.client != 0, "Failed to connect to PrisKV server."
+        self.client = priskv.PriskvClient(args.raddr, args.rport, args.password)
+        assert self.client != 0, "Failed to connect to Priskv server."
 
         self.shared_key = "1" * self.key_len
 
@@ -92,7 +90,7 @@ class PriskvBenchmark:
         while True:
             ret = self.exec_op()
             if ret != 0:
-                print("PrisKV benchmark failed: %d", ret)
+                print("priskv benchmark failed: %d", ret)
                 return
 
             self.req_count += 1
@@ -116,84 +114,7 @@ class PriskvBenchmark:
         self.disconnect()
 
 
-class PriskvBenchmarkTorch(PriskvBenchmark):
-
-    def __init__(self, args):
-        import torch
-
-        if args.mem_type == "gpu":
-            self.device = "cuda"
-        elif args.mem_type == "npu":
-            import torch_npu
-            torch.npu.set_device(0)
-            self.device = "npu"
-        elif args.mem_type == "cpu":
-            self.device = "cpu"
-        else:
-            raise ValueError(
-                "Invalid memory type. Must be 'gpu', 'cpu' or 'npu'.")
-
-        if args.transfer or self.device == "npu":
-            self.need_transfer = True
-        else:
-            self.need_transfer = False
-
-        if self.need_transfer:
-            self.tensor_client = priskv.PriskvTensorClient(args.raddr, args.rport,
-                                                       args.laddr, args.lport,
-                                                       1)
-            self.op_get = self.op_transfer_get
-            self.op_set = self.op_transfer_set
-
-        super().__init__(args)
-
-        self.dtype_map = {
-            "int8": [torch.int8, 1],
-            "int16": [torch.int16, 2],
-            "float32": [torch.float32, 4],
-            "float64": [torch.float64, 8],
-        }
-
-        if args.dtype not in self.dtype_map:
-            raise ValueError(
-                "Invalid tensor type. Must be 'int8', 'int16', 'float32', or 'float64'."
-            )
-
-        self.tensor_size = self.value_len / self.dtype_map[args.dtype][1]
-        self.dtype = self.dtype_map[args.dtype][0]
-
-        self.device_tensor = torch.rand(int(self.tensor_size),
-                                        dtype=self.dtype,
-                                        device=self.device)
-        if self.need_transfer:
-            self.cpu_tensor = self.device_tensor.to("cpu")
-        else:
-            self.reg_handler = self.client.reg_memory(
-                self.device_tensor.data_ptr(), self.value_len)
-            self.shared_val_sgl = priskv.SGL(self.device_tensor.data_ptr(),
-                                           self.value_len, self.reg_handler)
-
-    def op_transfer_get(self):
-        ret = self.tensor_client.get(self.shared_key, self.cpu_tensor)
-        if ret != 0:
-            return ret
-
-        self.cpu_tensor.to(self.device)
-        return 0
-
-    def op_transfer_set(self):
-        t = self.device_tensor.to("cpu")
-        return self.tensor_client.set(self.shared_key, t)
-
-    def disconnect(self):
-        super().disconnect()
-        if self.need_transfer:
-            self.tensor_client.close()
-        else:
-            self.client.dereg_memory(self.reg_handler)
-
-
-class PRISKVBenchmarkNumpy(PriskvBenchmark):
+class PriskvBenchmarkNumpy(PriskvBenchmark):
 
     def __init__(self, args):
         import numpy as np
@@ -243,7 +164,7 @@ class PRISKVBenchmarkNumpy(PriskvBenchmark):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='PrisKV Benchmark')
+    parser = argparse.ArgumentParser(description='Priskv Benchmark')
 
     parser.add_argument("--raddr",
                         type=str,
@@ -252,19 +173,13 @@ def main():
 
     parser.add_argument("--rport",
                         type=int,
-                        default=18512,
-                        help="remote port, default 18512")
+                        default=6379,
+                        help="remote port, default 6379")
 
-    parser.add_argument(
-        "--laddr",
-        type=str,
-        default=None,
-        help="local address, default None (auto chosen by system)")
-
-    parser.add_argument("--lport",
-                        type=int,
-                        default=0,
-                        help="local port, default 0 (any)")
+    parser.add_argument("--password",
+                        type=str,
+                        default="kvcache-redis",
+                        help="password, default kvcache-redis")
 
     parser.add_argument("--operation",
                         type=str,
@@ -296,11 +211,6 @@ def main():
                         default="float32",
                         help="type of tensor [int8/int16/float32/float64]")
 
-    parser.add_argument("--torch",
-                        action="store_true",
-                        default=False,
-                        help="whether to use torch tensor, default use numpy")
-
     parser.add_argument(
         "--interval",
         type=int,
@@ -322,10 +232,7 @@ def main():
     args = parser.parse_args()
     print(args)
 
-    if args.torch:
-        benchmark = PriskvBenchmarkTorch(args)
-    else:
-        benchmark = PRISKVBenchmarkNumpy(args)
+    benchmark = PriskvBenchmarkNumpy(args)
 
     benchmark.run()
 
