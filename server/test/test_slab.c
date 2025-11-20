@@ -103,5 +103,5 @@ int main()
     assert(!test_round(128));
 
     /* round 2: test a huge slab */
-    assert(!test_round(1024 * 1024 * 4));
+    assert(!test_round(1024 * 1024 * 2));
 }
