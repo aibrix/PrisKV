@@ -3,6 +3,7 @@ import os
 import subprocess
 import threading
 import time
+import argparse
 
 
 def run_test(prog, result_list, index):
@@ -27,7 +28,7 @@ def run_test(prog, result_list, index):
         print(f"    {stderr.decode()}", end='')
 
 
-def priskv_unit_test():
+def priskv_unit_test(parallel: bool = True):
     progs = [
         # "lib/test/test-event", "lib/test/test-threads", "lib/test/test-codec",
         "./server/test/test-slab-mt", "./server/test/test-buddy",
@@ -38,15 +39,19 @@ def priskv_unit_test():
 
     print("---- PrisKV UNIT TEST ----")
     result_list = [0] * len(progs)
-    threads = []
 
-    for i, prog in enumerate(progs):
-        thread = threading.Thread(target=run_test, args=(prog, result_list, i))
-        threads.append(thread)
-        thread.start()
+    if parallel:
+        threads = []
+        for i, prog in enumerate(progs):
+            thread = threading.Thread(target=run_test, args=(prog, result_list, i))
+            threads.append(thread)
+            thread.start()
 
-    for thread in threads:
-        thread.join()
+        for thread in threads:
+            thread.join()
+    else:
+        for i, prog in enumerate(progs):
+            run_test(prog, result_list, i)
 
     print("---- PrisKV UNIT TEST DONE ----")
     if any(result_list):
@@ -55,6 +60,15 @@ def priskv_unit_test():
 
 
 if __name__ == "__main__":
-    exit_code = priskv_unit_test()
+    parser = argparse.ArgumentParser(description="Run PrisKV unit tests")
+    parser.add_argument(
+        "--no-parallel",
+        dest="no_parallel",
+        action="store_true",
+        help="Disable parallel running and run tests sequentially"
+    )
+    args = parser.parse_args()
+
+    exit_code = priskv_unit_test(parallel=not args.no_parallel)
     if exit_code != 0:
         exit(exit_code)

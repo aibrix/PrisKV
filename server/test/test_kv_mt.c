@@ -39,8 +39,8 @@
 #include "priskv-protocol-helper.h"
 #include "priskv-utils.h"
 
-#define NUM_THREADS 8
-#define MAX_KEYS_PER_THREAD (128 * 1024)
+#define NUM_THREADS 4
+#define MAX_KEYS_PER_THREAD (64 * 1024)
 #define MAX_KEYS (MAX_KEYS_PER_THREAD * NUM_THREADS)
 #define MAX_KEY_LENGTH 64
 #define VALUE_BLOCK_SIZE 1024

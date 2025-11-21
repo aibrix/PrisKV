@@ -84,8 +84,10 @@ jobs:
                               liburing-dev
 
           # install clang-format-19
-          sudo curl -L https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-46b8640/clang-format-19_linux-amd64 --output /usr/bin/clang-format-19
+          sudo curl -fsSL --retry 3 --retry-delay 2 https://github.com/muttleyxd/clang-tools-static-binaries/releases/download/master-46b8640/clang-format-19_linux-amd64 -o /usr/bin/clang-format-19 || { echo "ERROR: Failed to download clang-format-19"; exit 1; }
+          test -s /usr/bin/clang-format-19 || { echo "ERROR: Downloaded file is empty"; exit 1; }
           sudo chmod +x /usr/bin/clang-format-19
+          /usr/bin/clang-format-19 --version >/dev/null 2>&1 || { echo "ERROR: Downloaded clang-format-19 is not executable or invalid"; exit 1; }
 
           # install python dependencies
           pip install -r requirements.txt
@@ -98,7 +100,7 @@ jobs:
           make test
       - name: Unit Tests
         run: |
-          python run_unit_test.py
+          python -u run_unit_test.py --no-parallel
       - name: E2E Tests
         run: |
-          python run_e2e_test.py
+          python -u run_e2e_test.py
