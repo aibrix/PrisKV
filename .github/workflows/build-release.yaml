@@ -22,7 +22,7 @@ on:
 
 jobs:
   image-release-dockerhub:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [cut-github-release]
     permissions:
       packages: write
@@ -31,7 +31,7 @@ jobs:
       matrix:
         component:
           - name: priskv
-            file: docker/Dockerfile_ubuntu2404
+            file: docker/Dockerfile_ubuntu2204
     steps:
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
@@ -61,7 +61,7 @@ jobs:
             BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
 
   image-release-ghcr:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [cut-github-release]
     permissions:
       packages: write
@@ -101,7 +101,7 @@ jobs:
             BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
 
   python-wheel-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -163,7 +163,7 @@ jobs:
             pypriskv/dist/*.whl
 
   cut-github-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: [python-wheel-release]
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
