@@ -1,0 +1,145 @@
+x-priskv-config: &priskv-config
+  AIBRIX_KV_CACHE_OL_BLOCK_SIZE: 64
+  AIBRIX_KV_CACHE_OL_L1_CACHE_ENABLED: 0
+  AIBRIX_KV_CACHE_OL_L2_CACHE_BACKEND: PRISKV
+  AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_ADDR: 127.0.0.1
+  AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_PORT: 16379
+  AIBRIX_KV_CACHE_OL_PRISKV_PASSWORD: kvcache-redis
+  PRISKV_CLUSTER_META: '{"version":1,"nodes":[{"name":"node0","addr":"33.2.58.130","port": 9000,"slots":[{"start":0,"end":4095}]}]}'
+  
+x-engine-config: &engine-config
+  ENGINE_PORT: 18000
+  MODEL: Qwen3-32B
+  TP: 4
+  VLLM_KV_CONFIG: '{"kv_connector":"AIBrixOffloadingConnectorV1Type3","kv_role":"kv_both"}'
+  CUDA_VISIBLE_DEVICES: 0,1,2,3
+  
+x-bench-config: &bench-config
+  SEED: 10
+  TOTAL_INPUT_LEN: 8000
+  OUTPUT_LEN: 200
+  PREFIX_LEN: 0
+  RATE: 32
+  CONCURRENCY: 32
+  PROMPTS: 256
+
+services:
+  redis:
+    image: redis:7.4.2
+    container_name: redis
+    ports:
+      - "16379:6379"
+    environment:
+      <<: *priskv-config
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", $$AIBRIX_KV_CACHE_OL_PRISKV_PASSWORD, "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    entrypoint: ["redis-server"]
+    command: ["--appendonly", "yes"]
+    
+  init:
+    image: redis:7.4.2
+    container_name: init
+    network_mode: "host"
+    environment:
+      <<: *priskv-config
+    depends_on:
+      - redis
+    restart: "no"
+    command: |
+      sh -c "
+        set -e
+        # Wait for Redis to start
+        echo 'Waiting for Redis to start...'
+        sleep 5
+        
+        # Load the data into Redis
+        echo $$PRISKV_CLUSTER_META > /tmp/priskv.json
+        echo 'cluster meta: '$(cat /tmp/priskv.json)
+        cat /tmp/priskv.json | redis-cli -h 0.0.0.0 -p $$AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_PORT -x SET priskv_cluster_metadata
+        if [ $? -eq 0 ]; then
+          echo 'Cluster metadata loaded successfully!'
+        else
+          echo 'Failed to load cluster metadata!'
+        fi
+        
+        # Set Redis password
+        redis-cli -h 0.0.0.0 -p $$AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_PORT CONFIG SET requirepass $$AIBRIX_KV_CACHE_OL_PRISKV_PASSWORD
+        echo 'Redis password configured successfully!'
+      "
+
+  priskv:  # capacity: 512 GB
+    image: kvcache-container-image-hb2-cn-beijing.cr.volces.com/aibrix/priskv:v0.0.2
+    container_name: priskv
+    network_mode: "host"
+    shm_size: 32gb
+    privileged: true
+    cap_add:
+      - IPC_LOCK
+    command: ['-a', '33.2.58.130', '-p', '9000', '-v', '1048576', '-b', '524288', '-k', '2097152', '-K', '256', '-t', '16', '--acl', 'any', '-L', 'stdout', '-l', 'notice']
+
+  engine:
+    image: aibrix-container-registry-cn-beijing.cr.volces.com/aibrix/vllm-openai:v0.10.2-aibrix0.5.1-nixl0.7.1-priskv0.0.2-20251121
+    container_name: engine
+    runtime: nvidia
+    network_mode: "host"
+    shm_size: 32gb
+    cap_add:
+      - IPC_LOCK
+    privileged: true
+    volumes:
+      - /data01:/data01
+    depends_on:
+      - init
+      - priskv
+    environment:
+      <<:
+        - *priskv-config
+        - *engine-config
+    entrypoint: []
+    command: |
+      sh -c "
+        # Wait for PrisKV to start
+        echo 'Waiting for PrisKV to start...'
+        sleep 30
+        
+        python3 -m vllm.entrypoints.openai.api_server --port=$$ENGINE_PORT --uvicorn-log-level=warning --model=/data01/models/$$MODEL --served-model-name=$$MODEL --trust-remote-code --disable-log-requests --disable-fastapi-docs --swap-space=0 --no-enable-prefix-caching --kv-transfer-config=$$VLLM_KV_CONFIG --tensor-parallel-size=$$TP
+      "
+      
+  bench:  # use the vllm benchmarking tool, therefore, we use the same image for both vllm and sglang
+    image: aibrix-container-registry-cn-beijing.cr.volces.com/aibrix/vllm-openai:v0.10.2-aibrix0.5.1-nixl0.7.1-priskv0.0.2-20251121
+    container_name: bench
+    runtime: nvidia
+    network_mode: "host"
+    volumes:
+      - /data01:/data01
+    depends_on:
+      - engine
+    environment:
+      <<:
+        - *engine-config
+        - *bench-config
+    entrypoint: []
+    command: |
+      sh -c "
+        # Wait for engine to start
+        echo 'Waiting for engine to start...'
+        while ! curl -s http://127.0.0.1:$$ENGINE_PORT/health > /dev/null; do
+          echo \"Waiting for engine on 127.0.0.1:$$ENGINE_PORT...\"
+          sleep 5
+        done
+        sleep 30
+        echo \"Engine on 127.0.0.1:$$ENGINE_PORT is up!\"
+
+        INPUT_LEN=$((TOTAL_INPUT_LEN-PREFIX_LEN))
+
+        for i in 1 2; do
+          echo \"====================== ROUND $$i ===========================\"
+          echo \"SEED $$SEED\"
+          echo \"Running benchmark with prefix len: $$PREFIX_LEN, input len: $$INPUT_LEN, output len $$OUTPUT_LEN, request rate $$RATE, concurrency $$CONCURRENCY, prompts $$PROMPTS\"
+          python3 -m vllm.entrypoints.cli.main bench serve --backend vllm --tokenizer /data01/models/$$MODEL --model $$MODEL --base-url http://0.0.0.0:$$ENGINE_PORT --endpoint /v1/completions --metric_percentiles '50,90,95,99' --goodput ttft:5000 tpot:250 --num-prompts $$PROMPTS --max-concurrency $$CONCURRENCY --random-input-len $$INPUT_LEN --random-prefix-len $$PREFIX_LEN --random-output-len $$OUTPUT_LEN --dataset-name random --ignore-eos --seed $$SEED
+          sleep 10
+        done
+      "
