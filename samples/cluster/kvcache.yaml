@@ -1,0 +1,120 @@
+apiVersion: orchestration.aibrix.ai/v1alpha1
+kind: KVCache
+metadata:
+  name: kvcache-cluster
+  namespace: default
+  annotations:
+    kvcache.orchestration.aibrix.ai/backend: hpkv
+    hpkv.kvcache.orchestration.aibrix.ai/rdma-port: "18512"
+    hpkv.kvcache.orchestration.aibrix.ai/admin-port: "9100"
+    hpkv.kvcache.orchestration.aibrix.ai/block-size-bytes: "4096"
+    hpkv.kvcache.orchestration.aibrix.ai/block-count: "1048576"
+    hpkv.kvcache.orchestration.aibrix.ai/total-slots: "4096"
+    hpkv.kvcache.orchestration.aibrix.ai/virtual-node-count: "100"
+spec:
+  metadata:
+    redis:
+      runtime:
+        image: kvcache-image-container-cn-shanghai.cr.volces.com/kvcache/redis:7.4.2
+        replicas: 1
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 1Gi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+  service:
+    type: ClusterIP
+    ports:
+      - name: service
+        port: 18512
+        targetPort: 18512
+        protocol: TCP
+      - name: admin
+        port: 9100
+        targetPort: 9100
+        protocol: TCP
+  watcher:
+    image: kvcache-image-container-cn-shanghai.cr.volces.com/kvcache/kvcache-watcher:nightly
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "256Mi"
+        vke.volcengine.com/rdma: "1"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+        vke.volcengine.com/rdma: "1"
+  cache:
+    replicas: 3
+    template:
+      metadata:
+        annotations:
+          prometheus.io/path: /metrics
+          prometheus.io/port: "2112"
+          prometheus.io/scrape: "true"
+          k8s.volcengine.com/pod-networks: |
+            [
+              {
+                "cniConf":{
+                    "name":"rdma"
+                }
+              }
+            ]
+      spec:
+        hostIPC: true
+        containers:
+          - name: kvcache-server
+            image: kvcache-container-image-hb2-cn-beijing.cr.volces.com/aibrix/priskv:v0.0.2
+            command:
+              - "/bin/bash"
+              - "-c"
+            args:
+              - |
+                AIBRIX_KVCACHE_RDMA_IP=$(ip addr show dev eth1 | grep 'inet ' | awk '{print $2}' | awk -F/ '{print $1}')
+                echo "Binding to RDMA IP: $AIBRIX_KVCACHE_RDMA_IP"
+                ./hpkv-server -a $AIBRIX_KVCACHE_RDMA_IP -p 18512 -v 4096 -b 1048576 --acl any -A $AIBRIX_KVCACHE_RDMA_IP -P 9100
+            ports:
+              - name: service
+                containerPort: 18512
+                protocol: TCP
+              - name: manage
+                containerPort: 9100
+                protocol: TCP
+            env:
+              - name: AIBRIX_KVCACHE_UID
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.uid
+              - name: AIBRIX_KVCACHE_NAME
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.name
+              - name: AIBRIX_KVCACHE_NAMESPACE
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: AIBRIX_KVCACHE_RDMA_PORT
+                value: "18512"
+              - name: AIBRIX_KVCACHE_ADMIN_PORT
+                value: "9100"
+              - name: AIBRIX_KVCACHE_BLOCK_SIZE_IN_BYTES
+                value: "4096"
+              - name: AIBRIX_KVCACHE_BLOCK_COUNT
+                value: "1048576"
+            securityContext:
+              capabilities:
+                add:
+                  - IPC_LOCK
+                  - SYS_RESOURCE
+            resources:
+              requests:
+                cpu: "6000m"
+                memory: "30Gi"
+                vke.volcengine.com/rdma: "1"
+              limits:
+                cpu: "6000m"
+                memory: "30Gi"
+                vke.volcengine.com/rdma: "1"

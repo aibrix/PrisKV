@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepseek-r1-distill-llama-8b
+  labels:
+    model.aibrix.ai/name: deepseek-r1-distill-llama-8b
+    model.aibrix.ai/port: "8000"
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      model.aibrix.ai/name: deepseek-r1-distill-llama-8b
+  template:
+    metadata:
+      labels:
+        model.aibrix.ai/name: deepseek-r1-distill-llama-8b
+      annotations:
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+        # RDMA network (adjust to your CNI / provider)
+        k8s.volcengine.com/pod-networks: |
+          [
+            {
+              "cniConf": {
+                  "name":"rdma"
+              }
+            }
+          ]
+    spec:
+      containers:
+        - name: vllm-openai
+          image: aibrix-container-registry-cn-beijing.cr.volces.com/aibrix/vllm-openai:v0.10.2-aibrix0.5.1-nixl0.7.1-priskv0.0.2-20251121
+          imagePullPolicy: Always
+          command:
+            - python3
+            - -m
+            - vllm.entrypoints.openai.api_server
+            - --port
+            - "8000"
+            - --uvicorn-log-level
+            - warning
+            - --model
+            - /models/DeepSeek-R1-Distill-Llama-8B/
+            - --trust-remote-code
+            - --served-model-name
+            - deepseek-r1-distill-llama-8b
+            - --max-model-len
+            - "32000"  # adjust based on GPU memory
+            - --disable-log-requests
+            - --disable-fastapi-docs
+            - --swap-space
+            - "0"
+            - --kv-transfer-config
+            - '{"kv_connector":"AIBrixOffloadingConnectorV1Type3", "kv_role":"kv_both"}'
+          env:
+            - name: VLLM_USE_V1
+              value: "1"
+
+            # L1 cache is disabled in this example (only use L2 PrisKV).
+            - name: AIBRIX_KV_CACHE_OL_L1_CACHE_ENABLED
+              value: "0"
+
+            # Configure L2 backend as PrisKV
+            - name: AIBRIX_KV_CACHE_OL_L2_CACHE_BACKEND
+              value: "PRISKV"
+
+            # Point to the Redis-compatible metadata service above
+            - name: AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_ADDR
+              value: "kvcache-cluster-redis"
+            - name: AIBRIX_KV_CACHE_OL_PRISKV_REMOTE_PORT
+              value: "6379"
+            - name: AIBRIX_KV_CACHE_OL_PRISKV_PASSWORD
+              value: "kvcache_nodes"
+
+          volumeMounts:
+            - mountPath: /models
+              name: model-hostpath
+
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              vke.volcengine.com/rdma: "1"
+              cpu: "10"
+              memory: "120G"
+            requests:
+              nvidia.com/gpu: "1"
+              vke.volcengine.com/rdma: "1"
+              cpu: "10"
+              memory: "120G"
+
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+
+      volumes:
+        - name: model-hostpath
+          hostPath:
+            path: /root/models
+            type: DirectoryOrCreate
