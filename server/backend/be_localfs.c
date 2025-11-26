@@ -124,7 +124,8 @@ typedef struct localfs_request {
 
     const char *key;
     uint8_t *val;
-    uint64_t valuelen; // Will be updated to actual read/write length after SET and GET operations complete
+    uint64_t valuelen; // Will be updated to actual read/write length after SET and GET operations
+                       // complete
     uint64_t old_valuelen; // Size of old value being overwritten (for SET)
     uint64_t timeout;
     priskv_backend_driver_cb cb;
@@ -161,7 +162,7 @@ static void handle_io_uring_events(int fd, void *opaque, uint32_t events)
                 priskv_policy_unref_key(shared_ctx->policy, req->key);
                 pthread_spin_unlock(&shared_ctx->lock);
             }
-            
+
             localfs_complete_request(req);
             continue;
         }
@@ -177,14 +178,14 @@ static void handle_io_uring_events(int fd, void *opaque, uint32_t events)
                 localfs_complete_request(req);
                 continue;
             }
-            
+
             int64_t delta = (int64_t)req->valuelen - (int64_t)req->old_valuelen;
             if (delta > 0) {
                 shared_ctx->free_size -= delta;
             } else {
                 shared_ctx->free_size += (-delta);
             }
-            
+
             if (shared_ctx->policy) {
                 priskv_policy_access(shared_ctx->policy, req->key);
             }
@@ -678,9 +679,10 @@ static bool submit_io_request(localfs_request *req)
             pthread_spin_lock(&shared_ctx->lock);
             ref_acquired = priskv_policy_try_ref_key(shared_ctx->policy, req->key);
             pthread_spin_unlock(&shared_ctx->lock);
-            
+
             if (!ref_acquired) {
-                priskv_log_debug("BE_LOCALFS: key %s not found in policy during submit\n", req->key);
+                priskv_log_debug("BE_LOCALFS: key %s not found in policy during submit\n",
+                                 req->key);
                 pthread_spin_lock(&shared_ctx->queue_lock);
                 if (shared_ctx->inflight_count > 0) {
                     shared_ctx->inflight_count--;
@@ -938,7 +940,7 @@ static void localfs_test(priskv_backend_device *bdev, const char *key, priskv_ba
         pthread_spin_lock(&shared_ctx->lock);
         ref_acquired = priskv_policy_try_ref_key(shared_ctx->policy, key);
         pthread_spin_unlock(&shared_ctx->lock);
-        
+
         if (!ref_acquired) {
             priskv_log_debug("BE_LOCALFS: key %s not found in policy\n", key);
             goto out;
