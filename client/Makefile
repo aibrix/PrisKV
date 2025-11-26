@@ -33,7 +33,7 @@ VALKEY_LDFLAGS = -I$(VALKEY_INCLUDE_PATH)
 PRISKV_TARGETS_ALL = priskv-client priskv-benchmark priskv-example priskv-test_runtime
 PRISKV_TARGETS = priskv-client priskv-benchmark
 PRISKV_TARGETS_SRCS = $(patsubst priskv-%, %.c, $(PRISKV_TARGETS_ALL))
-SRCS = $(filter-out $(PRISKV_TARGETS_SRCS) $(VALKEY_BENCHMARK_SRC), $(wildcard *.c))
+SRCS = $(filter-out $(PRISKV_TARGETS_SRCS) $(VALKEY_BENCHMARK_SRC), $(wildcard *.c transport/*.c))
 OBJS := $(SRCS:%.c=%.o)
 DEPS := $(OBJS:%.o=%.d)
 
@@ -46,6 +46,9 @@ LIBIBVERBS_VERSION = $(shell pkg-config --modversion libibverbs)
 LIBIBVERBS_VERSION_MAJOR = $(shell echo ${LIBIBVERBS_VERSION} | cut -d "." -f 1)
 LIBIBVERBS_VERSION_MINOR = $(shell echo ${LIBIBVERBS_VERSION} | cut -d "." -f 2)
 RDMA_LDFLAGS = -lrdmacm -libverbs -DLIBIBVERBS_VERSION_MAJOR=$(LIBIBVERBS_VERSION_MAJOR) -DLIBIBVERBS_VERSION_MINOR=$(LIBIBVERBS_VERSION_MINOR)
+
+UCX_CFLAGS = $(shell pkg-config --cflags ucx)
+UCX_LDFLAGS = $(shell pkg-config --libs ucx)
 
 CUDA_HOME ?= /usr/local/cuda
 CUDA_LIB ?= $(CUDA_HOME)/lib64
@@ -102,13 +105,13 @@ $(THIRDPARTY_SRCS):
 	git submodule update --init --recursive ../thirdparty/linenoise
 
 $(PRISKV_TARGETS): priskv-%: %.c $(STATIC_LIB) $(THIRDPARTY_SRCS)
-	$(CC) $< $(THIRDPARTY_SRCS) -o $@ $(STATIC_LIB) $(CFLAGS) $(RDMA_LDFLAGS) $(THIRDPARTY_INCFLAGS)
+	$(CC) $< $(THIRDPARTY_SRCS) -o $@ $(STATIC_LIB) $(CFLAGS) $(RDMA_LDFLAGS) $(UCX_CFLAGS) $(UCX_LDFLAGS) $(THIRDPARTY_INCFLAGS)
 
 $(VALKEY_STATIC_LIB):
 	cd $(VALKEY_PATH) && USE_RDMA=1 make
 
 $(VALKEY_BENCHMARK_NAME): $(VALKEY_BENCHMARK_SRC) $(STATIC_LIB) $(VALKEY_STATIC_LIB)
-	$(CC) $^ $(CFLAGS) $(RDMA_LDFLAGS) $(CUDA_LDFLAGS) $(VALKEY_LDFLAGS) -o $@
+	$(CC) $^ $(CFLAGS) $(RDMA_LDFLAGS) $(UCX_CFLAGS) $(UCX_LDFLAGS) $(CUDA_LDFLAGS) $(VALKEY_LDFLAGS) -o $@
 
 install: $(PRISKV_TARGETS)
 	install -m 755 -d $(PRISKV_DESTDIR)/$(PRISKV_BINPATH)
@@ -129,3 +132,4 @@ clean:
 
 format:
 	$(FMT) -i *.c *.h
+	$(FMT) -i transport/*.c transport/*.h

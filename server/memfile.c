@@ -34,15 +34,15 @@
 #include "priskv-log.h"
 #include "priskv-logo.h"
 
-#include "rdma.h"
+#include "transport/transport.h"
 #include "memory.h"
 #include "priskv-threads.h"
 
 /* arguments of command line */
-static uint32_t max_key_length = PRISKV_RDMA_DEFAULT_KEY_LENGTH;
-static uint32_t max_key = PRISKV_RDMA_DEFAULT_KEY;
-static uint32_t value_block_size = PRISKV_RDMA_DEFAULT_VALUE_BLOCK_SIZE;
-static uint64_t value_block = PRISKV_RDMA_DEFAULT_VALUE_BLOCK;
+static uint32_t max_key_length = PRISKV_TRANSPORT_DEFAULT_KEY_LENGTH;
+static uint32_t max_key = PRISKV_TRANSPORT_DEFAULT_KEY;
+static uint32_t value_block_size = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK_SIZE;
+static uint64_t value_block = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK;
 static uint8_t threads = 1;
 static priskv_log_level log_level = priskv_log_notice;
 static char *memfile;
@@ -54,15 +54,15 @@ static void priskv_showhelp(void)
     printf("  -o/--op OPERATION\n\tsupport operations: create|info[default]\n");
     printf("  -f/--memfile PATH\n\tmemory file from tmpfs/hugetlbfs\n");
     printf("  -k/--max-keys KEYS\n\tthe maxium count of KV, default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_KEY, PRISKV_RDMA_MAX_KEY);
+           PRISKV_TRANSPORT_DEFAULT_KEY, PRISKV_TRANSPORT_MAX_KEY);
     printf("  -K/--max-key-length BYTES\n\tthe maxium bytes of a key, default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_KEY_LENGTH, PRISKV_RDMA_MAX_KEY_LENGTH);
+           PRISKV_TRANSPORT_DEFAULT_KEY_LENGTH, PRISKV_TRANSPORT_MAX_KEY_LENGTH);
     printf("  -v/--value-block-size BYTES\n\tthe block size of minimal value in bytes, "
            "default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_VALUE_BLOCK_SIZE, PRISKV_RDMA_MAX_VALUE_BLOCK_SIZE);
+           PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK_SIZE, PRISKV_TRANSPORT_MAX_VALUE_BLOCK_SIZE);
     printf("  -b/--value-blocks BLOCKS\n\tthe count of value blocks, must be power of 2, "
            "default %ld, max %ld\n",
-           PRISKV_RDMA_DEFAULT_VALUE_BLOCK, PRISKV_RDMA_MAX_VALUE_BLOCK);
+           PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK, PRISKV_TRANSPORT_MAX_VALUE_BLOCK);
     printf("  -t/--threads THREADS\n\tthe number of worker threads to clean memory, default 0\n");
     printf("  -l/--log-level LEVEL\n\terror, warn, notice[default], info or debug\n");
 
@@ -170,7 +170,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'k':
             max_key = atoi(optarg);
-            if (!max_key || (max_key > PRISKV_RDMA_MAX_KEY)) {
+            if (!max_key || (max_key > PRISKV_TRANSPORT_MAX_KEY)) {
                 printf("Invalid -k/--max-keys\n");
                 priskv_showhelp();
             }
@@ -178,7 +178,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'K':
             if (priskv_str2num(optarg, &key_length) < 0 || !key_length ||
-                key_length > PRISKV_RDMA_MAX_KEY_LENGTH) {
+                key_length > PRISKV_TRANSPORT_MAX_KEY_LENGTH) {
                 printf("Invalid -K/--max-key-length\n");
                 priskv_showhelp();
             }
@@ -187,7 +187,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'v':
             if (priskv_str2num(optarg, &block_size) < 0 || !block_size ||
-                block_size > PRISKV_RDMA_MAX_VALUE_BLOCK_SIZE) {
+                block_size > PRISKV_TRANSPORT_MAX_VALUE_BLOCK_SIZE) {
                 printf("Invalid -v/--value-block-size\n");
                 priskv_showhelp();
             }
@@ -197,7 +197,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'b':
             value_block = atoll(optarg);
-            if (!value_block || (value_block > PRISKV_RDMA_MAX_VALUE_BLOCK)) {
+            if (!value_block || (value_block > PRISKV_TRANSPORT_MAX_VALUE_BLOCK)) {
                 priskv_showhelp();
             }
 

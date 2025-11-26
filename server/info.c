@@ -39,7 +39,7 @@
 #include "acl.h"
 #include "memory.h"
 #include "kv.h"
-#include "rdma.h"
+#include "transport/transport.h"
 
 void priskv_info_get_acl(void *data)
 {
@@ -68,7 +68,7 @@ void priskv_info_get_memory(void *data)
 void priskv_info_get_kv(void *data)
 {
     priskv_kv_info *info = (priskv_kv_info *)data;
-    void *kv = priskv_rdma_get_kv();
+    void *kv = priskv_transport_get_kv();
 
     info->bucket_count = priskv_get_bucket_count(kv);
     info->keys_inuse = priskv_get_keys_inuse(kv);
@@ -86,11 +86,11 @@ void priskv_info_get_connection(void *data)
 {
     priskv_connection_info *info = (priskv_connection_info *)data;
 
-    priskv_rdma_listener *listeners = priskv_rdma_get_listeners(&info->nlisteners);
+    priskv_transport_listener *listeners = priskv_transport_get_listeners(&info->nlisteners);
     info->listeners = calloc(info->nlisteners, sizeof(priskv_conn_listener_info));
 
     for (int i = 0; i < info->nlisteners; i++) {
-        priskv_rdma_listener *listener = &listeners[i];
+        priskv_transport_listener *listener = &listeners[i];
         priskv_conn_listener_info *listener_info = &info->listeners[i];
 
         listener_info->address = strdup(listener->address);
@@ -98,7 +98,7 @@ void priskv_info_get_connection(void *data)
         listener_info->clients = calloc(listener->nclients, sizeof(priskv_conn_client_info));
 
         for (int j = 0; j < listener->nclients; j++) {
-            priskv_rdma_client *client = &listener->clients[j];
+            priskv_transport_client *client = &listener->clients[j];
             priskv_conn_client_info *client_info = &listener_info->clients[j];
 
             client_info->address = strdup(client->address);
@@ -114,7 +114,7 @@ void priskv_info_get_connection(void *data)
         }
     }
 
-    priskv_rdma_free_listeners(listeners, info->nlisteners);
+    priskv_transport_free_listeners(listeners, info->nlisteners);
 }
 
 void priskv_info_free_connection(void *data)
@@ -184,7 +184,7 @@ void priskv_info_get_cpu(void *data)
     pid_t pid = getpid();
     int ret = get_process_cpu_time(pid, &used_cpu_user_ticks, &used_cpu_sys_ticks, &clock_ticks);
     if (!ret) {
-        priskv_log_warn("failed to get process cpu time");
+        priskv_log_warn("failed to get process cpu time\n");
     }
 
     info->used_cpu_sys_ticks = (uint64_t)used_cpu_sys_ticks;

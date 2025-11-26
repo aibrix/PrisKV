@@ -1,11 +1,29 @@
 FROM docker.io/library/ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y git gcc make cmake librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev python3-pybind11 python3-dev python3-pip libhiredis-dev liburing-dev
+RUN apt update && apt install -y git gcc make wget librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev python3-pybind11 python3-dev python3-pip libhiredis-dev liburing-dev
+
+# install cmake
+RUN cd /tmp && \
+    wget -q https://cmake.org/files/v4.1/cmake-4.1.3-linux-x86_64.sh && \
+    bash cmake-4.1.3-linux-x86_64.sh --skip-license --prefix=/usr && \
+    rm cmake-4.1.3-linux-x86_64.sh
+
+# libevhtp uses TestEndianess.c.in
+RUN ln -s /usr/share/cmake-4.1/Modules/TestEndianness.c.in /usr/share/cmake-4.1/Modules/TestEndianess.c.in
+
+# install ucx
+RUN cd /tmp && \
+    wget -q https://github.com/openucx/ucx/releases/download/v1.19.0/ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+    tar xvf ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+    dpkg -i ucx-1.19.0.deb ucx-cuda-1.19.0.deb ucx-xpmem-1.19.0.deb && \
+    rm /tmp/ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 /tmp/ucx-1.19.0.deb /tmp/ucx-cuda-1.19.0.deb /tmp/ucx-xpmem-1.19.0.deb
 
 ADD . /root/priskv
 
 WORKDIR /root/priskv
+ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 RUN mkdir /workspace
 RUN make all
 RUN cp server/priskv-server /workspace/

@@ -62,6 +62,7 @@ struct priskv_thread {
 } __attribute__((aligned(64)));
 
 struct priskv_threadpool {
+    uint32_t thread_flags;
     priskv_thread *iothreads;
     int niothread;
     priskv_thread *bgthreads;
@@ -252,6 +253,7 @@ priskv_threadpool *priskv_threadpool_create_with_hooks(const char *prefix, int n
     pool = calloc(1, sizeof(priskv_threadpool));
     assert(pool);
 
+    pool->thread_flags = flags;
     pool->niothread = niothread;
     pool->iothreads = calloc(niothread, sizeof(priskv_thread));
     assert(pool->iothreads);

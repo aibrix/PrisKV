@@ -44,6 +44,8 @@ extern "C"
 #include <errno.h>
 #include <uuid/uuid.h>
 #include <stdlib.h>
+#include <netdb.h>
+#include <sys/poll.h>
 
 #ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t)&((TYPE *)0)->MEMBER)
@@ -74,6 +76,13 @@ static inline int priskv_set_nonblock(int fd)
     int flags = fcntl(fd, F_GETFL, 0);
 
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+
+static inline int priskv_set_block(int fd)
+{
+    int flags = fcntl(fd, F_GETFL, 0);
+
+    return fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
 }
 
 static inline int priskv_add_event_fd(int epollfd, int fd)
@@ -137,6 +146,55 @@ static inline void priskv_inet_ntop(struct sockaddr *addr, char *dst)
     } else {
         sprintf(dst, "%s", "Unknown address");
     }
+}
+
+static inline int priskv_sock_io(int sock, ssize_t (*sock_call)(int, void *, size_t, int),
+                                 int poll_events, void *data, size_t size,
+                                 void (*progress)(void *arg), void *arg, const char *name)
+{
+    size_t total = 0;
+    struct pollfd pfd;
+    int ret;
+
+    while (total < size) {
+        pfd.fd = sock;
+        pfd.events = poll_events;
+        pfd.revents = 0;
+
+        ret = poll(&pfd, 1, 1); /* poll for 1ms */
+        if (ret > 0) {
+            ret = sock_call(sock, (char *)data + total, size - total, 0);
+            if ((ret == 0) && (poll_events & POLLIN)) {
+                return -1;
+            }
+            if (ret < 0) {
+                return -1;
+            }
+            total += ret;
+        } else if ((ret < 0) && (errno != EINTR)) {
+            return -1;
+        }
+
+        /* progress user context */
+        if (progress != NULL) {
+            progress(arg);
+        }
+    }
+    return 0;
+}
+
+static inline int priskv_safe_send(int sock, void *data, size_t size, void (*progress)(void *arg),
+                                   void *arg)
+{
+    typedef ssize_t (*sock_call)(int, void *, size_t, int);
+
+    return priskv_sock_io(sock, (sock_call)send, POLLOUT, data, size, progress, arg, "send");
+}
+
+static inline int priskv_safe_recv(int sock, void *data, size_t size, void (*progress)(void *arg),
+                                   void *arg)
+{
+    return priskv_sock_io(sock, recv, POLLIN, data, size, progress, arg, "recv");
 }
 
 static inline unsigned long priskv_rdtsc(void)

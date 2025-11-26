@@ -36,11 +36,23 @@ $(TEST_SLAB): $(OBJS)
 $(TEST_SLAB_MT): $(OBJS)
 	$(CC) test_slab_mt.c ../slab.c $(CFLAGS) -pthread -o $(TEST_SLAB_MT)
 
+UCX_CFLAGS = $(shell pkg-config --cflags ucx)
+UCX_LIBS = $(shell pkg-config --libs ucx)
+ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV): $(OBJS)
-	$(CC) test_kv.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../rdma.c ../acl.c $(CFLAGS) -o $(TEST_KV) -lmount -lrdmacm -libverbs
+	$(CC) test_kv.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV) -lmount -lrdmacm -libverbs $(UCX_LIBS)
+else
+$(TEST_KV):
+	@echo "UCX not available, skip $(TEST_KV)"
+endif
 
+ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV_MT): $(OBJS)
-	$(CC) test_kv_mt.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../rdma.c ../acl.c $(CFLAGS) -o $(TEST_KV_MT) -lmount -lrdmacm -libverbs
+	$(CC) test_kv_mt.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_MT) -lmount -lrdmacm -libverbs $(UCX_LIBS)
+else
+$(TEST_KV_MT):
+	@echo "UCX not available, skip $(TEST_KV_MT)"
+endif
 
 $(TEST_MEMORY): $(OBJS)
 	$(CC) test_memory.c ../memory.c ../../lib/log.c $(CFLAGS) -lmount -o $(TEST_MEMORY)
@@ -48,8 +60,13 @@ $(TEST_MEMORY): $(OBJS)
 $(TEST_ACL): $(OBJS)
 	$(CC) test_acl.c ../acl.c ../../lib/log.c $(CFLAGS) -lrdmacm -o $(TEST_ACL)
 
+ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV_EXPIRE_ROUTINE): $(OBJS)
-	$(CC) test_kv_expire_routine.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../rdma.c ../acl.c $(CFLAGS) -o $(TEST_KV_EXPIRE_ROUTINE) -lmount -lpthread -lrdmacm -libverbs
+	$(CC) test_kv_expire_routine.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_EXPIRE_ROUTINE) -lmount -lpthread -lrdmacm -libverbs $(UCX_LIBS)
+else
+$(TEST_KV_EXPIRE_ROUTINE):
+	@echo "UCX not available, skip $(TEST_KV_EXPIRE_ROUTINE)"
+endif
 
 $(TEST_BE_REDIS):
 	$(CC) test_be_redis.c ../../lib/log.c ../../lib/event.c ../../lib/workqueue.c ../../lib/threads.c ../backend/backend.c ../backend/be_redis.c $(CFLAGS) -o $(TEST_BE_REDIS) -levent -lhiredis

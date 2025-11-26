@@ -35,7 +35,7 @@
 #include "priskv-log.h"
 #include "priskv-logo.h"
 
-#include "rdma.h"
+#include "transport/transport.h"
 #include "memory.h"
 #include "kv.h"
 #include "priskv-threads.h"
@@ -45,11 +45,11 @@
 
 /* arguments of command line */
 static int naddr = 0;
-static char *addresses[PRISKV_RDMA_MAX_BIND_ADDR];
-static int port = PRISKV_RDMA_DEFAULT_PORT;
-static uint32_t max_key = PRISKV_RDMA_DEFAULT_KEY;
-static uint32_t value_block_size = PRISKV_RDMA_DEFAULT_VALUE_BLOCK_SIZE;
-static uint64_t value_block = PRISKV_RDMA_DEFAULT_VALUE_BLOCK;
+static char *addresses[PRISKV_TRANSPORT_MAX_BIND_ADDR];
+static int port = PRISKV_TRANSPORT_DEFAULT_PORT;
+static uint32_t max_key = PRISKV_TRANSPORT_DEFAULT_KEY;
+static uint32_t value_block_size = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK_SIZE;
+static uint64_t value_block = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK;
 static uint8_t threads = 1;
 static uint32_t thread_flags;
 static uint32_t expire_routine_interval = PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL;
@@ -57,9 +57,10 @@ static const char *memfile;
 static priskv_log_level log_level = priskv_log_notice;
 static const char *g_log_file = NULL;
 static priskv_logger *g_logger = NULL;
-static priskv_rdma_conn_cap conn_cap = {.max_sgl = PRISKV_RDMA_DEFAULT_SGL,
-                                      .max_key_length = PRISKV_RDMA_DEFAULT_KEY_LENGTH,
-                                      .max_inflight_command = PRISKV_RDMA_DEFAULT_INFLIGHT_COMMAND};
+static priskv_transport_conn_cap conn_cap = {.max_sgl = PRISKV_TRANSPORT_DEFAULT_SGL,
+                                             .max_key_length = PRISKV_TRANSPORT_DEFAULT_KEY_LENGTH,
+                                             .max_inflight_command =
+                                                 PRISKV_TRANSPORT_DEFAULT_INFLIGHT_COMMAND};
 
 static priskv_http_config http_config = {
     .addr = NULL,
@@ -78,24 +79,24 @@ static void priskv_showhelp(void)
     printf("\nUsage:\n");
     printf("  -a/--addr ADDR\n\tbind to ADDR, support as max as %d addresses. Ex, -a xx.xx.xx.xx "
            "-a yy.yy.yy.yy\n",
-           PRISKV_RDMA_MAX_BIND_ADDR);
-    printf("  -p/--port PORT\n\tlisten to PORT, default %d\n", PRISKV_RDMA_DEFAULT_PORT);
+           PRISKV_TRANSPORT_MAX_BIND_ADDR);
+    printf("  -p/--port PORT\n\tlisten to PORT, default %d\n", PRISKV_TRANSPORT_DEFAULT_PORT);
     printf("  -f/--memfile PATH\n\tload memory file from tmpfs/hugetlbfs\n");
     printf("  -c/--max-inflight-command COMMANDS\n\tthe maxium count of inflight command, default "
            "%d, max %d\n",
-           PRISKV_RDMA_DEFAULT_INFLIGHT_COMMAND, PRISKV_RDMA_MAX_INFLIGHT_COMMAND);
+           PRISKV_TRANSPORT_DEFAULT_INFLIGHT_COMMAND, PRISKV_TRANSPORT_MAX_INFLIGHT_COMMAND);
     printf("  -s/--max-sgl SGLS\n\tthe maxium count of scatter gather list, default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_SGL, PRISKV_RDMA_MAX_SGL);
+           PRISKV_TRANSPORT_DEFAULT_SGL, PRISKV_TRANSPORT_MAX_SGL);
     printf("  -k/--max-keys KEYS\n\tthe maxium count of KV, default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_KEY, PRISKV_RDMA_MAX_KEY);
+           PRISKV_TRANSPORT_DEFAULT_KEY, PRISKV_TRANSPORT_MAX_KEY);
     printf("  -K/--max-key-length BYTES\n\tthe maxium bytes of a key, default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_KEY_LENGTH, PRISKV_RDMA_MAX_KEY_LENGTH);
+           PRISKV_TRANSPORT_DEFAULT_KEY_LENGTH, PRISKV_TRANSPORT_MAX_KEY_LENGTH);
     printf("  -v/--value-block-size BYTES\n\tthe block size of minimal value in bytes, "
            "default %d, max %d\n",
-           PRISKV_RDMA_DEFAULT_VALUE_BLOCK_SIZE, PRISKV_RDMA_MAX_VALUE_BLOCK_SIZE);
+           PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK_SIZE, PRISKV_TRANSPORT_MAX_VALUE_BLOCK_SIZE);
     printf("  -b/--value-blocks BLOCKS\n\tthe count of value blocks, must be power of 2, "
            "default %ld, max %ld\n",
-           PRISKV_RDMA_DEFAULT_VALUE_BLOCK, PRISKV_RDMA_MAX_VALUE_BLOCK);
+           PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK, PRISKV_TRANSPORT_MAX_VALUE_BLOCK);
     printf("  -t/--threads THREADS\n\tthe number of worker threads, default 1\n");
     printf("  -e/--expire-routine-interval INTERVAL\n\tthe interval to auto-clean expired kv in "
            "second, default 600\n");
@@ -171,7 +172,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
             break;
 
         case 'p':
-            if (port != PRISKV_RDMA_DEFAULT_PORT) {
+            if (port != PRISKV_TRANSPORT_DEFAULT_PORT) {
                 printf("A single port is supported\n");
                 priskv_showhelp();
             }
@@ -202,7 +203,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
         case 'c':
             conn_cap.max_inflight_command = atoi(optarg);
             if (!conn_cap.max_inflight_command ||
-                (conn_cap.max_inflight_command > PRISKV_RDMA_MAX_INFLIGHT_COMMAND)) {
+                (conn_cap.max_inflight_command > PRISKV_TRANSPORT_MAX_INFLIGHT_COMMAND)) {
                 printf("Invalid -c/--max-inflight-command\n");
                 priskv_showhelp();
             }
@@ -210,7 +211,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 's':
             conn_cap.max_sgl = atoi(optarg);
-            if (!conn_cap.max_sgl || (conn_cap.max_sgl > PRISKV_RDMA_MAX_SGL)) {
+            if (!conn_cap.max_sgl || (conn_cap.max_sgl > PRISKV_TRANSPORT_MAX_SGL)) {
                 printf("Invalid -s/--max-sgl\n");
                 priskv_showhelp();
             }
@@ -218,7 +219,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'k':
             max_key = atoi(optarg);
-            if (max_key > PRISKV_RDMA_MAX_KEY) {
+            if (max_key > PRISKV_TRANSPORT_MAX_KEY) {
                 printf("Invalid -k/--max-keys\n");
                 priskv_showhelp();
             }
@@ -226,7 +227,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'K':
             if (priskv_str2num(optarg, &max_key_length) || !max_key_length ||
-                max_key_length > PRISKV_RDMA_MAX_KEY_LENGTH) {
+                max_key_length > PRISKV_TRANSPORT_MAX_KEY_LENGTH) {
                 printf("Invalid -K/--max-key-length\n");
                 priskv_showhelp();
             }
@@ -235,7 +236,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'v':
             if (priskv_str2num(optarg, &_value_block_size) || !_value_block_size ||
-                _value_block_size > PRISKV_RDMA_MAX_VALUE_BLOCK_SIZE) {
+                _value_block_size > PRISKV_TRANSPORT_MAX_VALUE_BLOCK_SIZE) {
                 printf("Invalid -v/--value-block-size\n");
                 priskv_showhelp();
             }
@@ -245,7 +246,7 @@ static void priskv_parsr_arg(int argc, char *argv[])
 
         case 'b':
             value_block = atoll(optarg);
-            if (!value_block || (value_block > PRISKV_RDMA_MAX_VALUE_BLOCK)) {
+            if (!value_block || (value_block > PRISKV_TRANSPORT_MAX_VALUE_BLOCK)) {
                 priskv_showhelp();
             }
 
@@ -370,9 +371,11 @@ static void *priskv_server_create_kv()
     return kv;
 }
 
-static void __priskv_rdma_process(evutil_socket_t fd, short events, void *arg)
+extern priskv_transport_driver *g_transport_driver;
+
+static void __priskv_transport_process(evutil_socket_t fd, short events, void *arg)
 {
-    priskv_rdma_process();
+    priskv_transport_process();
 }
 
 static int priskv_server_start(struct event_base *evbase)
@@ -400,11 +403,11 @@ static int priskv_server_start(struct event_base *evbase)
     priskv_set_expire_routine_interval(g_kv, expire_routine_interval);
     priskv_expire_routine(bgthread, g_kv);
 
-    if (priskv_rdma_listen(addresses, naddr, port, g_kv, &conn_cap)) {
-        return -1; /* priskv_rdma_listen should already print enough messages */
+    if (priskv_transport_listen(addresses, naddr, port, g_kv, &conn_cap)) {
+        return -1;
     }
 
-    ev = event_new(evbase, priskv_rdma_get_fd(), EV_READ | EV_PERSIST, __priskv_rdma_process, NULL);
+    ev = event_new(evbase, priskv_transport_get_fd(), EV_READ | EV_PERSIST, __priskv_transport_process, NULL);
 
     return event_add(ev, NULL);
 };

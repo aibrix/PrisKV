@@ -132,6 +132,7 @@ typedef struct {
     int (*get_fd)(void *ctx);
     void (*handler)(int fd, void *opaque, uint32_t events);
     const char *(*status_str)(int status);
+    bool (*is_error)(int status);
     void (*get)(void *ctx, const char *key, void *value, uint32_t value_len,
                 void (*cb)(int, void *), void *cbarg);
     void (*set)(void *ctx, const char *key, void *value, uint32_t value_len,
@@ -1049,6 +1050,12 @@ static void priskv_drv_test(void *ctx, const char *key, void (*cb)(int, void *),
     priskv_test_async(priskv_ctx->client, key, (uint64_t)priskv_req_ctx, priskv_req_cb);
 }
 
+static bool priskv_drv_is_error(int status)
+{
+    return status != PRISKV_STATUS_OK && status != PRISKV_STATUS_NO_SUCH_KEY &&
+           status != PRISKV_STATUS_KEY_UPDATING;
+}
+
 static const kv_driver priskv_drv = {
     .name = "priskv",
     .transfer = false,
@@ -1057,6 +1064,7 @@ static const kv_driver priskv_drv = {
     .get_fd = priskv_drv_get_fd,
     .handler = priskv_drv_handler,
     .status_str = priskv_drv_status_str,
+    .is_error = priskv_drv_is_error,
     .get = priskv_drv_get,
     .set = priskv_drv_set,
     .del = priskv_drv_del,
@@ -1071,6 +1079,7 @@ static const kv_driver priskv_drv_transfer = {
     .get_fd = priskv_drv_get_fd,
     .handler = priskv_drv_handler,
     .status_str = priskv_drv_status_str,
+    .is_error = priskv_drv_is_error,
     .get = priskv_drv_get_transfer,
     .set = priskv_drv_set_transfer,
     .del = priskv_drv_del,
@@ -1161,7 +1170,7 @@ static void job_cb(int status, void *arg)
 {
     job_context *job = arg;
 
-    if (status) {
+    if (job->kv_drv->is_error(status)) {
         job_set_error(job, "resp status[%d]: %s", status, job->kv_drv->status_str(status));
     }
 
@@ -1647,9 +1656,6 @@ static int job_init(job_context *job, int threadid)
     }
 
     job->threadid = threadid;
-    priskv_set_fd_handler(job->epollfd, job_process, NULL, job);
-    priskv_thread_add_event_handler(priskv_threadpool_get_iothread(g_threadpool, job->threadid),
-                                  job->epollfd);
 
     printf("job[%d] finish to init\n", threadid);
     return 0;
@@ -1677,6 +1683,9 @@ static void job_kick(job_context *job)
 {
     uint64_t u = 1;
 
+    priskv_set_fd_handler(job->epollfd, job_process, NULL, job);
+    priskv_thread_add_event_handler(priskv_threadpool_get_iothread(g_threadpool, job->threadid),
+                                    job->epollfd);
     write(job->eventfd, &u, sizeof(u));
 }
 

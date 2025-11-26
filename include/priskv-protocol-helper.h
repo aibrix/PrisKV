@@ -34,23 +34,73 @@ extern "C"
 
 #include <stddef.h>
 #include "priskv-protocol.h"
+#include "priskv-utils.h"
 
-static inline uint16_t priskv_request_key_off(uint16_t nsgl)
+static uint32_t priskv_ucx_max_rkey_len = 256;
+
+static inline uint16_t priskv_rdma_request_key_off(priskv_request *req)
 {
-    // size_t offset = offsetof(priskv_request, sgls);
-    // return (uint16_t)(offset + nsgl * sizeof(priskv_keyed_sgl));
-    return sizeof(priskv_request) + sizeof(priskv_keyed_sgl) * nsgl;
+    return sizeof(priskv_request) + sizeof(priskv_keyed_sgl) * be16toh(req->nsgl);
 }
 
-static inline uint16_t priskv_request_size(uint16_t nsgl, uint16_t keylen)
+static inline uint16_t priskv_rdma_request_size(priskv_request *req)
 {
-    return priskv_request_key_off(nsgl) + keylen;
+    return priskv_rdma_request_key_off(req) + be16toh(req->key_length);
 }
 
-static inline uint8_t *priskv_request_key(priskv_request *req, uint16_t nsgl)
+static inline unsigned int priskv_rdma_max_request_size_aligned(uint16_t max_sgl,
+                                                                uint16_t max_key_length)
+{
+    uint16_t s = sizeof(priskv_request) + sizeof(priskv_keyed_sgl) * max_sgl + max_key_length;
+
+    return ALIGN_UP(s, 64);
+}
+
+static inline uint8_t *priskv_rdma_request_key(priskv_request *req)
 {
     unsigned char *base = (unsigned char *)req;
-    return base + priskv_request_key_off(nsgl);
+    return base + priskv_rdma_request_key_off(req);
+}
+
+static inline uint16_t priskv_ucx_request_key_off(priskv_request *req)
+{
+    uint16_t nsgl = be16toh(req->nsgl);
+    uint16_t off = sizeof(priskv_request);
+    uint16_t i = 0;
+    for (; i < nsgl; i++) {
+        off += sizeof(priskv_keyed_sgl) + be32toh(req->sgls[i].packed_rkey_len);
+    }
+    return off;
+}
+
+static inline uint16_t priskv_ucx_request_size(priskv_request *req)
+{
+    return priskv_ucx_request_key_off(req) + be16toh(req->key_length);
+}
+
+static inline unsigned int priskv_ucx_max_request_size_aligned(uint16_t max_sgl,
+                                                               uint16_t max_key_length)
+{
+    uint16_t s = sizeof(priskv_request) +
+                 (sizeof(priskv_keyed_sgl) + priskv_ucx_max_rkey_len) * max_sgl + max_key_length;
+
+    return ALIGN_UP(s, 64);
+}
+
+static inline uint8_t *priskv_ucx_request_key(priskv_request *req)
+{
+    unsigned char *base = (unsigned char *)req;
+    return base + priskv_ucx_request_key_off(req);
+}
+
+static inline void priskv_ucx_to_hex(uint8_t *hex, uint8_t *str, uint32_t str_len)
+{
+    for (size_t j = 0; j < str_len; j++) {
+        unsigned char b = str[j];
+        hex[j * 2] = "0123456789abcdef"[b >> 4];
+        hex[j * 2 + 1] = "0123456789abcdef"[b & 0xF];
+    }
+    hex[str_len * 2] = '\0';
 }
 
 static inline const char *priskv_command_str(priskv_req_command cmd)
@@ -114,28 +164,31 @@ static inline const char *priskv_resp_status_str(priskv_resp_status status)
     return "Unknown";
 }
 
-static inline const char *priskv_rdma_cm_status_str(priskv_rdma_cm_status status)
+static inline const char *priskv_cm_status_str(priskv_cm_status status)
 {
     switch (status) {
-    case PRISKV_RDMA_CM_REJ_STATUS_INVALID_CM_REP:
+    case PRISKV_CM_REJ_STATUS_INVALID_CM_REP:
         return "Invalid CM Reply";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_INVALID_VERSION:
+    case PRISKV_CM_REJ_STATUS_INVALID_VERSION:
         return "Invalid version";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_INVALID_SGL:
+    case PRISKV_CM_REJ_STATUS_INVALID_SGL:
         return "Invalid SGL";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_INVALID_KEY_LENGTH:
+    case PRISKV_CM_REJ_STATUS_INVALID_KEY_LENGTH:
         return "Invalid Key length";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_INVALID_INFLIGHT_COMMAND:
+    case PRISKV_CM_REJ_STATUS_INVALID_INFLIGHT_COMMAND:
         return "Invalid inflight command";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_ACL_REFUSE:
+    case PRISKV_CM_REJ_STATUS_ACL_REFUSE:
         return "ACL refuse";
 
-    case PRISKV_RDMA_CM_REJ_STATUS_SERVER_ERROR:
+    case PRISKV_CM_REJ_STATUS_INVALID_WORKER_ADDR:
+        return "Invalid worker address";
+
+    case PRISKV_CM_REJ_STATUS_SERVER_ERROR:
         return "server error";
     }
 

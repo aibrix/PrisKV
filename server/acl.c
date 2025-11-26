@@ -30,7 +30,10 @@
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
-#include <rdma/rdma_cma.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "priskv-utils.h"
 #include "priskv-log.h"
@@ -43,23 +46,24 @@ static const char *acl_any = "any";
 
 static int priskv_acl_addr(const char *addr, struct sockaddr *saddr)
 {
-    struct rdma_addrinfo hints = {0}, *servinfo;
+    struct addrinfo hints = {0}, *res = NULL;
     const char *_port = "0";
     int ret;
 
-    hints.ai_flags = RAI_PASSIVE;
-    hints.ai_port_space = RDMA_PS_TCP;
-    ret = rdma_getaddrinfo(addr, _port, &hints, &servinfo);
+    hints.ai_flags = AI_PASSIVE;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    ret = getaddrinfo(addr, _port, &hints, &res);
     if (ret) {
-        priskv_log_error("ACL: getaddrinfo %s failed: %d, errno %d", addr, ret, errno);
-        return ret;
-    } else if (!servinfo) {
+        priskv_log_error("ACL: getaddrinfo %s failed: %d", addr, ret);
+        return -EINVAL;
+    } else if (!res) {
         priskv_log_error("ACL: getaddrinfo %s: no availabe address", addr);
         return -EINVAL;
     }
 
-    memcpy(saddr, servinfo->ai_src_addr, servinfo->ai_src_len);
-    rdma_freeaddrinfo(servinfo);
+    memcpy(saddr, res->ai_addr, res->ai_addrlen);
+    freeaddrinfo(res);
 
     return 0;
 }

@@ -37,6 +37,7 @@
 #include "priskv-log.h"
 #include "priskv-logo.h"
 #include "linenoise.h"
+#include "transport/transport.h"
 
 #define VALUE_MAX_LEN (64 * 1024)
 

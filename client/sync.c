@@ -34,22 +34,22 @@
 #include "priskv-log.h"
 #include "priskv.h"
 
-typedef struct priskv_rdma_req_sync {
+typedef struct priskv_transport_req_sync {
     priskv_status status;
     uint32_t valuelen;
     bool done;
-} priskv_rdma_req_sync;
+} priskv_transport_req_sync;
 
 static void priskv_common_sync_cb(uint64_t request_id, priskv_status status, void *result)
 {
-    priskv_rdma_req_sync *rdma_req_sync = (priskv_rdma_req_sync *)request_id;
+    priskv_transport_req_sync *req_sync = (priskv_transport_req_sync *)request_id;
     uint32_t valuelen = result ? *(uint32_t *)result : 0;
 
-    priskv_log_debug("RDMA: callback request_id 0x%lx, status: %s[0x%x], length %d\n", request_id,
+    priskv_log_debug("priskv_common_sync_cb: callback request_id 0x%lx, status: %s[0x%x], length %d\n", request_id,
                    priskv_resp_status_str(status), status, valuelen);
-    rdma_req_sync->status = status;
-    rdma_req_sync->valuelen = valuelen;
-    rdma_req_sync->done = true;
+    req_sync->status = status;
+    req_sync->valuelen = valuelen;
+    req_sync->done = true;
 }
 
 static inline int priskv_sync_wait(priskv_client *client, bool *done)
@@ -63,89 +63,89 @@ static inline int priskv_sync_wait(priskv_client *client, bool *done)
 
 int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint32_t *valuelen)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_get_async(client, key, sgl, nsgl, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
-    *valuelen = rdma_req_sync.valuelen;
+    priskv_get_async(client, key, sgl, nsgl, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+    *valuelen = req_sync.valuelen;
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_set_async(client, key, sgl, nsgl, timeout, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
+    priskv_set_async(client, key, sgl, nsgl, timeout, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_test(priskv_client *client, const char *key, uint32_t *valuelen)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_test_async(client, key, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
-    *valuelen = rdma_req_sync.valuelen;
+    priskv_test_async(client, key, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+    *valuelen = req_sync.valuelen;
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_delete(priskv_client *client, const char *key)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_delete_async(client, key, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
+    priskv_delete_async(client, key, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_expire(priskv_client *client, const char *key, uint64_t timeout)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_expire_async(client, key, timeout, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
+    priskv_expire_async(client, key, timeout, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_nrkeys(priskv_client *client, const char *regex, uint32_t *nkey)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_nrkeys_async(client, regex, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
-    *nkey = rdma_req_sync.valuelen;
+    priskv_nrkeys_async(client, regex, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+    *nkey = req_sync.valuelen;
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
 int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey)
 {
-    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
-    priskv_flush_async(client, regex, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
-    priskv_sync_wait(client, &rdma_req_sync.done);
-    *nkey = rdma_req_sync.valuelen;
+    priskv_flush_async(client, regex, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+    *nkey = req_sync.valuelen;
 
-    return rdma_req_sync.status;
+    return req_sync.status;
 }
 
-typedef struct priskv_rdma_keys_sync {
+typedef struct priskv_transport_keys_sync {
     priskv_status status;
     bool done;
     priskv_keyset **keyset;
-} priskv_rdma_keys_sync;
+} priskv_transport_keys_sync;
 
 static void priskv_keys_sync_cb(uint64_t request_id, priskv_status status, void *result)
 {
-    priskv_rdma_keys_sync *keys_req_sync = (priskv_rdma_keys_sync *)request_id;
+    priskv_transport_keys_sync *keys_req_sync = (priskv_transport_keys_sync *)request_id;
 
-    priskv_log_debug("RDMA: callback request_id 0x%lx, status: %s[0x%x]\n", request_id,
+    priskv_log_debug("priskv_keys_sync_cb: callback request_id 0x%lx, status: %s[0x%x]\n", request_id,
                    priskv_resp_status_str(status), status);
     keys_req_sync->status = status;
     keys_req_sync->done = true;
@@ -157,7 +157,7 @@ static void priskv_keys_sync_cb(uint64_t request_id, priskv_status status, void 
 
 int priskv_keys(priskv_client *client, const char *regex, priskv_keyset **keyset)
 {
-    priskv_rdma_keys_sync keys_req_sync = {0};
+    priskv_transport_keys_sync keys_req_sync = {0};
 
     keys_req_sync.keyset = keyset;
     priskv_keys_async(client, regex, (uint64_t)&keys_req_sync, priskv_keys_sync_cb);

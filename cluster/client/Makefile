@@ -2,8 +2,10 @@ LIB_NAME = libpriskvcluster
 STATIC_LIB = $(LIB_NAME).a
 STATIC_LIB_TMP = $(LIB_NAME).tmp.a
 INCFLAGS = -I../../client/ -I../../include/
-LIBS = -lrdmacm -libverbs -lpthread -lhiredis -lncurses -luuid
-CFLAGS = -fPIC -Wall -g -O0 $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code $(LIBS)
+UCX_CFLAGS = $(shell pkg-config --cflags ucx)
+UCX_LDFLAGS = $(shell pkg-config --libs ucx)
+LIBS = -lrdmacm -libverbs -lpthread -lhiredis -lncurses -luuid $(UCX_LDFLAGS)
+CFLAGS = -fPIC -Wall -g -O0 $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code $(UCX_CFLAGS) $(LIBS)
 CC = gcc
 AR = ar
 FMT = clang-format-19

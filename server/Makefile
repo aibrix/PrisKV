@@ -1,5 +1,7 @@
 VERSION = 0.1
-LIBS = -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis
+UCX_CFLAGS = $(shell pkg-config --cflags ucx)
+UCX_LIBS = $(shell pkg-config --libs ucx)
+LIBS = $(UCX_LIBS) -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis
 INCFLAGS = -I../include -I../client
 CFLAGS = -fPIC -Wall -g $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code
 FMT = clang-format-19
@@ -61,7 +63,7 @@ endif
 	rm -f $@.tmp
 
 $(PRISKV_SERVER_TARGETS): priskv-%: %.c $(PRISKV_SERVER_OBJS) $(COMMON_LIB_OBJS) $(DEPS_STATIC_LIBS)
-	$(CC) $^ -o $@ $(CFLAGS) $(LIBS)
+	$(CC) $^ -o $@ $(CFLAGS) $(UCX_CFLAGS) $(LIBS)
 
 MAN_DIR =../man
 $(MAN_DIR)/priskv-server.1: $(MAN_DIR)/priskv-server.man
@@ -91,4 +93,5 @@ clean:
 format:
 	$(FMT) -i *.c *.h
 	$(FMT) -i backend/*.c backend/*.h
+	$(FMT) -i transport/*.c transport/*.h
 	make -C test format

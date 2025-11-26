@@ -1,5 +1,6 @@
 PREFIX = /usr
-CFLAGS = -fPIC -Wall -g -O0 -I../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code
+UCX_CFLAGS = $(shell pkg-config --cflags ucx)
+CFLAGS = -fPIC -Wall -g -O0 -I../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code $(UCX_CFLAGS)
 CC = gcc
 AR = ar
 FMT = clang-format-19

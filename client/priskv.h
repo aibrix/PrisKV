@@ -44,7 +44,8 @@ typedef struct priskv_memory priskv_memory;
  * @lport: local port. Ignore port on NULL @laddr
  * @nqueue: the number of worker threads
  */
-priskv_client *priskv_connect(const char *raddr, int rport, const char *laddr, int lport, int nqueue);
+priskv_client *priskv_connect(const char *raddr, int rport, const char *laddr, int lport,
+                              int nqueue);
 
 /* Close a client context created by @priskv_connect */
 void priskv_close(priskv_client *client);
@@ -52,8 +53,8 @@ void priskv_close(priskv_client *client);
 /* Get memory handler
  * @offset: uint64_t type on valid fd(>= 0); or void * type on invalid fd.
  */
-priskv_memory *priskv_reg_memory(priskv_client *client, uint64_t offset, size_t length, uint64_t iova,
-                             int fd);
+priskv_memory *priskv_reg_memory(priskv_client *client, uint64_t offset, size_t length,
+                                 uint64_t iova, int fd);
 
 /* Put a memory handler
  * @mem: created by @priskv_reg_memory
@@ -122,8 +123,8 @@ typedef enum priskv_status {
     /* RDMA disconnected from the server side */
     PRISKV_STATUS_DISCONNECTED = 0xF00,
 
-    /* local RDMA error occurs */
-    PRISKV_STATUS_RDMA_ERROR,
+    /* local transport error occurs */
+    PRISKV_STATUS_TRANSPORT_ERROR,
 
     /* does inflight requests exceed @max_inflight_command? */
     PRISKV_STATUS_BUSY,
@@ -180,8 +181,8 @@ static inline const char *priskv_status_str(priskv_status status)
     case PRISKV_STATUS_DISCONNECTED:
         return "Disconnected";
 
-    case PRISKV_STATUS_RDMA_ERROR:
-        return "RDMA error";
+    case PRISKV_STATUS_TRANSPORT_ERROR:
+        return "Transport error";
 
     case PRISKV_STATUS_BUSY:
         return "Busy";
@@ -218,30 +219,31 @@ typedef void (*priskv_generic_cb)(uint64_t request_id, priskv_status status, voi
  *                                PRISKV_STATUS_VALUE_TOO_BIG as soon as possible.
  */
 int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                   uint64_t request_id, priskv_generic_cb cb);
+                     uint64_t request_id, priskv_generic_cb cb);
 
 /* Set value of a key */
 int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                   uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
+                     uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
 
 /* Test a key-value exist or not */
-int priskv_test_async(priskv_client *client, const char *key, uint64_t request_id, priskv_generic_cb cb);
+int priskv_test_async(priskv_client *client, const char *key, uint64_t request_id,
+                      priskv_generic_cb cb);
 
 /* Delete a key-value exist or not */
 int priskv_delete_async(priskv_client *client, const char *key, uint64_t request_id,
-                      priskv_generic_cb cb);
+                        priskv_generic_cb cb);
 
 /* Set expire time of a key */
-int priskv_expire_async(priskv_client *client, const char *key, uint64_t timeout, uint64_t request_id,
-                      priskv_generic_cb cb);
+int priskv_expire_async(priskv_client *client, const char *key, uint64_t timeout,
+                        uint64_t request_id, priskv_generic_cb cb);
 
 /* Get the number of keys which match the @regex */
 int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t request_id,
-                      priskv_generic_cb cb);
+                        priskv_generic_cb cb);
 
 /* Flush the keys which match the @regex */
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
-                     priskv_generic_cb cb);
+                       priskv_generic_cb cb);
 
 /* for *KEYS* command */
 typedef struct priskv_key {
@@ -259,13 +261,14 @@ void priskv_keyset_free(priskv_keyset *keyset);
 
 /* Get the keys which match the @regex and return the result in priskv_generic_cb */
 int priskv_keys_async(priskv_client *client, const char *regex, uint64_t request_id,
-                    priskv_generic_cb cb);
+                      priskv_generic_cb cb);
 
 /* sync APIs */
 int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-             uint32_t *valuelen);
+               uint32_t *valuelen);
 
-int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout);
+int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+               uint64_t timeout);
 
 int priskv_test(priskv_client *client, const char *key, uint32_t *valuelen);
 

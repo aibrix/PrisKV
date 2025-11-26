@@ -38,8 +38,8 @@ extern "C"
 #include "priskv-protocol.h"
 #include "backend/backend.h"
 
-typedef struct priskv_rdma_conn priskv_rdma_conn;
-struct priskv_rdma_rw_work;
+struct priskv_transport_conn;
+typedef struct priskv_transport_conn priskv_transport_conn;
 
 #define PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL 600
 
@@ -103,12 +103,12 @@ uint64_t priskv_get_expire_routine_times(void *_kv);
 // 1. For the same key, a request has already been sent to the backend;
 // 2. The number of current concurrent requests exceeds the backend queue depth.
 typedef struct priskv_tiering_req {
-    priskv_rdma_conn *conn;
     priskv_thread *thread;
     priskv_backend_device *backend;
     void *kv;
     priskv_request *req;
     uint64_t request_id;
+    priskv_transport_conn *conn;
 
     /* kv operation context */
     uint8_t *key;
@@ -128,10 +128,13 @@ typedef struct priskv_tiering_req {
     priskv_backend_status backend_status;
 
     bool recv_reposted;
-    struct priskv_rdma_rw_work *rdma_work;
 } priskv_tiering_req;
 
 int priskv_backend_req_resubmit(void *req);
+struct priskv_tiering_req *priskv_tiering_req_new(priskv_transport_conn *conn, priskv_request *req,
+                                                  uint8_t *key, uint16_t keylen, uint64_t timeout,
+                                                  priskv_req_command cmd, uint32_t remote_valuelen,
+                                                  priskv_resp_status *resp_status);
 
 // tiering concurrency control
 bool priskv_key_serialize_enter(struct priskv_tiering_req *treq);
