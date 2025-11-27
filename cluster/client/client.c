@@ -125,6 +125,7 @@ static int priskvClusterMetaServerConnect(priskvClusterMetaServer *metaServer, c
             priskv_log_error("Failed to connect to meta server %s:%d, %s\n", addr, port,
                            metaServer->redisCtx->errstr);
             redisFree(metaServer->redisCtx);
+            metaServer->redisCtx = NULL;
         } else {
             priskv_log_error("Failed to connect to meta server %s:%d, can't allocate redis context\n",
                            addr, port);
@@ -136,7 +137,6 @@ static int priskvClusterMetaServerConnect(priskvClusterMetaServer *metaServer, c
     metaServer->addr = strdup(addr);
     metaServer->port = port;
 
-    // 发送 AUTH 命令进行认证
     if (password != NULL) {
         redisReply *reply = redisCommand(metaServer->redisCtx, "AUTH %s", password);
         if (!reply || reply->type == REDIS_REPLY_ERROR) {
@@ -144,6 +144,7 @@ static int priskvClusterMetaServerConnect(priskvClusterMetaServer *metaServer, c
                            reply ? reply->str : "unknown error");
 
             redisFree(metaServer->redisCtx);
+            metaServer->redisCtx = NULL;
             freeReplyObject(reply);
             return -1;
         }
@@ -156,7 +157,10 @@ static int priskvClusterMetaServerConnect(priskvClusterMetaServer *metaServer, c
 
 static void priskvClusterMetaServerClose(priskvClusterMetaServer *metaServer)
 {
-    redisFree(metaServer->redisCtx);
+    if (metaServer->redisCtx) {
+        redisFree(metaServer->redisCtx);
+        metaServer->redisCtx = NULL;
+    }
     free(metaServer->addr);
     metaServer->addr = NULL;
     metaServer->port = 0;
