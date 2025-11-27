@@ -1,11 +1,22 @@
 FROM docker.io/library/ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y git gcc make cmake librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev python3-pybind11 python3-dev python3-pip libhiredis-dev liburing-dev
+RUN apt update && apt install -y git gcc make wget librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev python3-pybind11 python3-dev python3-pip libhiredis-dev liburing-dev
+
+# install cmake 4.1
+RUN cd /tmp && \
+    wget -q https://cmake.org/files/v4.1/cmake-4.1.3-linux-x86_64.sh && \
+    bash cmake-4.1.3-linux-x86_64.sh --skip-license --prefix=/usr && \
+    rm cmake-4.1.3-linux-x86_64.sh
+
+# libevhtp uses TestEndianess.c.in
+RUN ln -s /usr/share/cmake-4.1/Modules/TestEndianness.c.in /usr/share/cmake-4.1/Modules/TestEndianess.c.in
 
 ADD . /root/priskv
 
 WORKDIR /root/priskv
+ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 RUN mkdir /workspace
 RUN make all
 RUN cp server/priskv-server /workspace/
