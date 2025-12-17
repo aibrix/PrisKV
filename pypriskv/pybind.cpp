@@ -117,6 +117,36 @@ int priskv_mset_wrapper(uintptr_t client, const std::vector<std::string> &keys,
     return ret;
 }
 
+std::tuple<int, uint64_t>
+priskv_mset_and_pin_wrapper(uintptr_t client, const std::vector<std::string> &keys,
+                            const std::vector<priskv_sgl_wrapper> &sgl_wrappers, uint64_t timeout,
+                            std::vector<uint32_t> &mset_status)
+{
+    priskvClusterSGL sgl;
+    int ret = 0;
+    uint64_t pin_token = 0;
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (i >= sgl_wrappers.size())
+            break;
+
+        const auto &key = keys[i];
+        const auto &wrapper = sgl_wrappers[i];
+
+        sgl.iova = wrapper.iova;
+        sgl.length = wrapper.length;
+        sgl.mem = (priskvClusterMemory *)wrapper.mem;
+
+        int res = priskvClusterSetAndPin((priskvClusterClient *)client, key.c_str(), &sgl, 1,
+                                         timeout, &pin_token);
+        if (res != 0) {
+            ret = res;
+            mset_status[i] = res;
+        }
+    }
+
+    return std::make_tuple(ret, pin_token);
+}
+
 int priskv_get_wrapper(uintptr_t client, std::string key,
                      priskv_sgl_wrapper *sgl_wrapper, uint16_t nsgl, uint32_t *valuelen)
 {
@@ -183,6 +213,67 @@ int priskv_mget_wrapper(uintptr_t client, const std::vector<std::string> &keys,
     }
 
     return ret;
+}
+
+enum PIN_MOD { PIN = 0, UNPIN = 1 };
+
+int priskv_mget_base(uintptr_t client, const std::vector<std::string> &keys,
+                     const std::vector<priskv_sgl_wrapper> &sgl_wrappers,
+                     std::vector<uint32_t> &value_lengths, std::vector<uint32_t> &mget_status,
+                     uint64_t &token, PIN_MOD pin_mod)
+{
+    priskvClusterSGL sgl;
+    int ret = 0;
+    value_lengths.resize(keys.size(), 0);
+
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (i >= sgl_wrappers.size())
+            break;
+
+        const auto &key = keys[i];
+        const auto &wrapper = sgl_wrappers[i];
+
+        sgl.iova = wrapper.iova;
+        sgl.length = wrapper.length;
+        sgl.mem = (priskvClusterMemory *)wrapper.mem;
+        int res = -1;
+        switch (pin_mod) {
+        case PIN:
+            res = priskvClusterGetAndPin((priskvClusterClient *)client, key.c_str(), &sgl, 1,
+                                         &value_lengths[i], &token);
+            break;
+        case UNPIN:
+            res = priskvClusterGetAndUnPin((priskvClusterClient *)client, key.c_str(), &sgl, 1,
+                                           &value_lengths[i], &token);
+            break;
+        default:
+            break;
+        }
+        if (res != 0) {
+            mget_status[i] = res;
+            ret = res;
+        }
+    }
+
+    return ret;
+}
+
+int priskv_mget_and_pin_wrapper(uintptr_t client, const std::vector<std::string> &keys,
+                                const std::vector<priskv_sgl_wrapper> &sgl_wrappers,
+                                std::vector<uint32_t> &value_lengths,
+                                std::vector<uint32_t> &mget_status, uint64_t &token)
+{
+    return priskv_mget_base(client, keys, sgl_wrappers, value_lengths, mget_status, token,
+                            PIN_MOD::PIN);
+}
+
+int priskv_mget_and_unpin_wrapper(uintptr_t client, const std::vector<std::string> &keys,
+                                  const std::vector<priskv_sgl_wrapper> &sgl_wrappers,
+                                  std::vector<uint32_t> &value_lengths,
+                                  std::vector<uint32_t> &mget_status, uint64_t &token)
+{
+    return priskv_mget_base(client, keys, sgl_wrappers, value_lengths, mget_status, token,
+                            PIN_MOD::UNPIN);
 }
 
 int priskv_test_wrapper(uintptr_t client, std::string key)
@@ -271,4 +362,7 @@ PYBIND11_MODULE(_priskv_client, m)
     m.def("mexists", &priskv_mtest_wrapper, "A function to mtest key-val.");
     m.def("mdel", &priskv_mdelete_wrapper, "A function to mdelete key-val.");
     m.def("keys", &priskv_keys_wrapper, "A function to get keys.");
+    m.def("mget_and_pin", &priskv_mget_and_pin_wrapper, "A function to get and pin key-val.");
+    m.def("mget_and_unpin", &priskv_mget_and_unpin_wrapper, "A function to get and unpin key-val.");
+    m.def("mget_and_pin", &priskv_mset_and_pin_wrapper, "A function to mset and pin key-val.");
 }

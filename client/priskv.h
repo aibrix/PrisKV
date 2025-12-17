@@ -219,10 +219,29 @@ typedef void (*priskv_generic_cb)(uint64_t request_id, priskv_status status, voi
  */
 int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
                    uint64_t request_id, priskv_generic_cb cb);
+/*
+ * Get value of a key, update the pin_token to a unique pin_token if the pin_token is zero
+ * */
+int priskv_get_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                             uint64_t *pin_token, uint64_t request_id, priskv_generic_cb cb);
+
+/*
+ * Get value of a key, unpin the pin operator if the pin_token is non-zero
+ * */
+int priskv_get_and_unpin_async(priskv_client *client, const char *key, priskv_sgl *sgl,
+                               uint16_t nsgl, uint64_t *pin_token, uint64_t request_id,
+                               priskv_generic_cb cb);
 
 /* Set value of a key */
 int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
                    uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
+
+/* Set value of a key, update the pin_token to a unique pin_token if the pin_token is zero
+ *
+ * */
+int priskv_set_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                             uint64_t timeout, uint64_t *pin_token, uint64_t request_id,
+                             priskv_generic_cb cb);
 
 /* Test a key-value exist or not */
 int priskv_test_async(priskv_client *client, const char *key, uint64_t request_id, priskv_generic_cb cb);
@@ -242,6 +261,14 @@ int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t reque
 /* Flush the keys which match the @regex */
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
                      priskv_generic_cb cb);
+
+/* for control panel*/
+int priskv_pin_async(priskv_client *client, const char *key, uint16_t nkeys, uint64_t *pin_token,
+                     uint64_t request_id, priskv_generic_cb cb);
+
+/* for control panel*/
+int priskv_unpin_async(priskv_client *client, uint64_t *pin_token, uint64_t request_id,
+                       priskv_generic_cb cb);
 
 /* for *KEYS* command */
 typedef struct priskv_key {
@@ -280,6 +307,23 @@ int priskv_nrkeys(priskv_client *client, const char *regex, uint32_t *nkey);
 int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey);
 
 uint64_t priskv_capacity(priskv_client *client);
+
+int priskv_get_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                       uint64_t *pin_token);
+
+int priskv_get_and_unpin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                         uint64_t *pin_token);
+
+int priskv_set_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                       uint64_t timeout, uint64_t *pin_token);
+
+/*
+ * multi keys is not support now, nkeys always equal 1
+ * TODO(wangyi): support multi keys in one rdma operation
+ * */
+int priskv_pin(priskv_client *client, const char *key, uint16_t nkeys, uint64_t *pin_token);
+
+int priskv_unpin(priskv_client *client, uint64_t *pin_token);
 
 /*
  *assuming max timeout means no timeout
