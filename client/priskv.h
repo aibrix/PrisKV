@@ -198,7 +198,8 @@ static inline const char *priskv_status_str(priskv_status status)
 /* generic callback function for async KV APIs.
  * @opaque: return different content according to the interface
  */
-typedef void (*priskv_generic_cb)(uint64_t request_id, priskv_status status, void *result);
+typedef void (*priskv_generic_cb)(uint64_t request_id, priskv_status status, void *result,
+                                  void *result_token);
 
 /* General rules:
  * @client: client context of priskv service which is created by @priskv_connect
@@ -223,13 +224,13 @@ int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
  * Get value of a key, update the pin_token to a unique pin_token if the pin_token is zero
  * */
 int priskv_get_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                             uint64_t *pin_token, uint64_t request_id, priskv_generic_cb cb);
+                             uint64_t pin_token, uint64_t request_id, priskv_generic_cb cb);
 
 /*
  * Get value of a key, unpin the pin operator if the pin_token is non-zero
  * */
 int priskv_get_and_unpin_async(priskv_client *client, const char *key, priskv_sgl *sgl,
-                               uint16_t nsgl, uint64_t *pin_token, uint64_t request_id,
+                               uint16_t nsgl, uint64_t pin_token, uint64_t request_id,
                                priskv_generic_cb cb);
 
 /* Set value of a key */
@@ -240,7 +241,7 @@ int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
  *
  * */
 int priskv_set_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                             uint64_t timeout, uint64_t *pin_token, uint64_t request_id,
+                             uint64_t timeout, uint64_t pin_token, uint64_t request_id,
                              priskv_generic_cb cb);
 
 /* Test a key-value exist or not */
@@ -263,11 +264,11 @@ int priskv_flush_async(priskv_client *client, const char *regex, uint64_t reques
                      priskv_generic_cb cb);
 
 /* for control panel*/
-int priskv_pin_async(priskv_client *client, const char *key, uint16_t nkeys, uint64_t *pin_token,
+int priskv_pin_async(priskv_client *client, const char *key, uint16_t nkeys, uint64_t pin_token,
                      uint64_t request_id, priskv_generic_cb cb);
 
 /* for control panel*/
-int priskv_unpin_async(priskv_client *client, uint64_t *pin_token, uint64_t request_id,
+int priskv_unpin_async(priskv_client *client, uint64_t pin_token, uint64_t request_id,
                        priskv_generic_cb cb);
 
 /* for *KEYS* command */
@@ -309,10 +310,10 @@ int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey);
 uint64_t priskv_capacity(priskv_client *client);
 
 int priskv_get_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                       uint64_t *pin_token);
+                       uint64_t *pin_token, uint32_t *valuelen);
 
 int priskv_get_and_unpin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
-                         uint64_t *pin_token);
+                         uint64_t pin_token, uint32_t *valuelen);
 
 int priskv_set_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
                        uint64_t timeout, uint64_t *pin_token);

@@ -117,6 +117,7 @@ typedef struct priskv_rdma_rw_work {
     priskv_request *req;
     struct ibv_mr *mr;
     uint32_t valuelen;
+    uint64_t pin_token;
     uint16_t nsgl;
     uint16_t completed;
     bool defer_resp;
@@ -564,7 +565,7 @@ static priskv_response *priskv_rdma_unused_response(priskv_rdma_conn *conn)
 }
 
 static int priskv_rdma_send_response(priskv_rdma_conn *conn, uint64_t request_id,
-                                   priskv_resp_status status, uint32_t length)
+                                     priskv_resp_status status, uint32_t length, uint64_t pin_token)
 {
     priskv_rdma_mem *rmem = &conn->rmem[PRISKV_RDMA_MEM_RESP];
     struct ibv_send_wr wr = {0}, *bad_wr;
@@ -581,6 +582,7 @@ static int priskv_rdma_send_response(priskv_rdma_conn *conn, uint64_t request_id
     resp->request_id = request_id; /* be64 */
     resp->status = htobe16(status);
     resp->length = htobe32(length);
+    resp->pin_token = htobe64(pin_token);
 
     rsge.addr = (uint64_t)resp;
     rsge.length = sizeof(priskv_response);
@@ -606,8 +608,9 @@ static int priskv_rdma_send_response(priskv_rdma_conn *conn, uint64_t request_id
 }
 
 static int priskv_rdma_rw_req(priskv_rdma_conn *conn, priskv_request *req, struct ibv_mr *mr,
-                            uint8_t *val, uint32_t valuelen, bool set, void (*cb)(void *),
-                            void *cbarg, bool defer_resp, priskv_rdma_rw_work **work_out)
+                              uint8_t *val, uint32_t valuelen, uint64_t pin_token, bool set,
+                              void (*cb)(void *), void *cbarg, bool defer_resp,
+                              priskv_rdma_rw_work **work_out)
 {
     priskv_rdma_rw_work *work;
     uint32_t offset = 0;
@@ -631,6 +634,8 @@ static int priskv_rdma_rw_req(priskv_rdma_conn *conn, priskv_request *req, struc
     work->mr = mr;
     work->request_id = req->request_id; /* be64 */
     work->valuelen = valuelen;
+    work->pin_token = pin_token;
+    priskv_log_debug("RDMA: response pin_token  for %d request\n", pin_token);
     work->completed = 0;
     work->cb = cb;
     work->cbarg = cbarg;
@@ -690,7 +695,7 @@ static int priskv_rdma_rw_req(priskv_rdma_conn *conn, priskv_request *req, struc
 static int priskv_rdma_recv_req(priskv_rdma_conn *conn, uint8_t *req);
 
 static int priskv_rdma_complete_rw_work(priskv_rdma_rw_work *work, priskv_resp_status status,
-                                   uint32_t length);
+                                        uint32_t length, uint64_t pin_token);
 
 static void priskv_tiering_req_repost_recv(priskv_tiering_req *treq)
 {
@@ -799,10 +804,10 @@ static void priskv_tiering_finish(priskv_tiering_req *treq, priskv_resp_status s
     priskv_tiering_req_repost_recv(treq);
 
     if (treq->rdma_work) {
-        priskv_rdma_complete_rw_work(treq->rdma_work, status, length);
+        priskv_rdma_complete_rw_work(treq->rdma_work, status, length, 0 /* pin_token */);
         treq->rdma_work = NULL;
     } else {
-        priskv_rdma_send_response(treq->conn, treq->request_id, status, length);
+        priskv_rdma_send_response(treq->conn, treq->request_id, status, length, 0 /* pin_token */);
     }
 
     priskv_tiering_req_free(treq);
@@ -856,8 +861,8 @@ static void priskv_tiering_get_backend_cb(priskv_backend_status backend_status, 
         }
 
         if (priskv_rdma_rw_req(treq->conn, treq->req, treq->conn->value_mr, treq->value,
-                             treq->valuelen, false, priskv_tiering_get_rdma_complete_cb, treq, false,
-                             NULL)) {
+                               treq->valuelen, 0 /* pin_token */, false,
+                               priskv_tiering_get_rdma_complete_cb, treq, false, NULL)) {
             priskv_tiering_finish(treq, PRISKV_RESP_STATUS_SERVER_ERROR, 0);
             return;
         }
@@ -907,10 +912,10 @@ void priskv_tiering_get(priskv_tiering_req *treq)
             priskv_tiering_finish(treq, PRISKV_RESP_STATUS_VALUE_TOO_BIG, treq->valuelen);
             return;
         }
-        
+
         if (priskv_rdma_rw_req(treq->conn, treq->req, treq->conn->value_mr, treq->value,
-                             treq->valuelen, false, priskv_tiering_get_rdma_complete_cb, treq, false,
-                             NULL)) {
+                               treq->valuelen, 0 /* pin_token */, false,
+                               priskv_tiering_get_rdma_complete_cb, treq, false, NULL)) {
             priskv_get_key_end(keynode);
             priskv_tiering_finish(treq, PRISKV_RESP_STATUS_SERVER_ERROR, 0);
             return;
@@ -1074,8 +1079,9 @@ void priskv_tiering_set(priskv_tiering_req *treq)
         return;
     }
 
-    if (priskv_rdma_rw_req(treq->conn, treq->req, treq->conn->value_mr, treq->value, treq->remote_valuelen,
-                         true, priskv_tiering_set_rdma_complete_cb, treq, true, &treq->rdma_work)) {
+    if (priskv_rdma_rw_req(treq->conn, treq->req, treq->conn->value_mr, treq->value,
+                           treq->remote_valuelen, 0 /* pin_token */, true,
+                           priskv_tiering_set_rdma_complete_cb, treq, true, &treq->rdma_work)) {
         priskv_set_key_end(treq->keynode);
         priskv_delete_key(treq->kv, treq->key, treq->keylen);
         priskv_tiering_finish(treq, PRISKV_RESP_STATUS_NO_MEM, 0);
@@ -1211,7 +1217,7 @@ static void priskv_check_and_log_slow_query(priskv_rdma_rw_work *work)
 
 // RDMA READ/WRITE handler's bottom half
 static int priskv_rdma_complete_rw_work(priskv_rdma_rw_work *work, priskv_resp_status status,
-                                   uint32_t length)
+                                        uint32_t length, uint64_t pin_token)
 {
     if (!work) {
         return -EINVAL;
@@ -1219,7 +1225,7 @@ static int priskv_rdma_complete_rw_work(priskv_rdma_rw_work *work, priskv_resp_s
 
     priskv_rdma_conn *conn = work->conn;
 
-    int ret = priskv_rdma_send_response(conn, work->request_id, status, length);
+    int ret = priskv_rdma_send_response(conn, work->request_id, status, length, pin_token);
 
     if (work->mr != conn->value_mr) {
         priskv_rdma_mem *rmem = &conn->rmem[PRISKV_RDMA_MEM_KEYS];
@@ -1252,7 +1258,9 @@ static int priskv_rdma_handle_rw(priskv_rdma_conn *conn, priskv_rdma_rw_work *wo
         return 0;
     }
 
-    return priskv_rdma_complete_rw_work(work, PRISKV_RESP_STATUS_OK, work->valuelen);
+    priskv_log_debug("RDMA: priskv_rdma_handle_rw work->pin_token %d\n", work->pin_token);
+    return priskv_rdma_complete_rw_work(work, PRISKV_RESP_STATUS_OK, work->valuelen,
+                                        work->pin_token);
 }
 
 static inline int priskv_rdma_handle_send(priskv_rdma_conn *conn, priskv_response *resp, uint32_t len)
@@ -1296,6 +1304,7 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
     uint16_t command = be16toh(req->command);
     uint16_t nsgl = be16toh(req->nsgl);
     uint64_t timeout = be64toh(req->timeout);
+    uint64_t token = be64toh(req->token);
     uint8_t *key;
     uint16_t keylen;
     uint16_t keyoff = priskv_request_key_off(nsgl);
@@ -1313,7 +1322,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
     if (len < keyoff) {
         priskv_log_warn("RDMA: <%s - %s> invalid command. recv %d, less than %d, nsgl 0x%x\n",
                       local_addr, peer_addr, len, keyoff, nsgl);
-        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_COMMAND, 0);
+        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_COMMAND,
+                                  0 /*length*/, 0 /*pin_token*/);
         return -EPROTO;
     }
 
@@ -1322,21 +1332,24 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
         priskv_log_warn("RDMA: <%s - %s> empty key. recv %d, less than %d, nsgl 0x%x\n", local_addr,
                       peer_addr, len, keyoff, nsgl);
 
-        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_EMPTY, 0);
+        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_EMPTY,
+                                  0 /* length */, 0 /* pin_token */);
         return -EPROTO;
     }
 
     if (keylen > conn->conn_cap.max_key_length) {
         priskv_log_warn("RDMA: <%s - %s> invalid key. key(%d) exceeds max_key_length(%d)\n",
                       local_addr, peer_addr, keylen, conn->conn_cap.max_key_length);
-        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_TOO_BIG, 0);
+        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_TOO_BIG,
+                                  0 /* length */, 0 /* pin_token */);
         return -EPROTO;
     }
 
     if (nsgl > conn->conn_cap.max_sgl) {
         priskv_log_warn("RDMA: <%s - %s> invalid nsgl. nsgl(%d) exceeds max_sgl(%d)\n", local_addr,
                       peer_addr, nsgl, conn->conn_cap.max_sgl);
-        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_SGL, 0);
+        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_SGL,
+                                  0 /* length*/, 0 /* pin_token */);
         return -EPROTO;
     }
 
@@ -1350,6 +1363,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
     }
 
     switch (command) {
+    case PRISKV_COMMAND_GET_AND_PIN:
+    case PRISKV_COMMAND_GET_AND_UNPIN:
     case PRISKV_COMMAND_GET: {
         struct timeval server_rw_kv_time, server_data_send_time;
         remote_valuelen = priskv_sgl_size_from_be(req->sgls, nsgl);
@@ -1357,7 +1372,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_get_key(conn->kv, key, keylen, &val, &valuelen, &keynode);
             if (status != PRISKV_RESP_STATUS_OK || !keynode) {
-                ret = priskv_rdma_send_response(conn, req->request_id, status, 0);
+                ret = priskv_rdma_send_response(conn, req->request_id, status, 0 /* length */,
+                                                0 /* pin_token */);
                 priskv_get_key_end(keynode);
                 break;
             }
@@ -1366,14 +1382,36 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
             req->runtime.server_rw_kv_time = server_rw_kv_time;
 
             if (remote_valuelen < valuelen) {
-                ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_TOO_BIG,
-                                              valuelen);
+                ret = priskv_rdma_send_response(conn, req->request_id,
+                                                PRISKV_RESP_STATUS_VALUE_TOO_BIG, valuelen,
+                                                0 /* pin_token */);
                 priskv_get_key_end(keynode);
                 break;
             }
 
-            ret = priskv_rdma_rw_req(conn, req, conn->value_mr, val, valuelen, false,
-                                   priskv_get_key_end, keynode, false, NULL);
+            // process PIN and UNPIN
+
+            if (command == PRISKV_COMMAND_GET_AND_PIN) {
+                if (token == 0) {
+                    // generate new token
+                    token = priskv_next_token(conn->kv);
+                    priskv_log_debug("RDMA: priskv_rdma_handle_recv: PRISKV_COMMAND_GET_AND_PIN "
+                                     "generate new token %d\n",
+                                     token);
+                } else {
+                    priskv_log_debug("RDMA: priskv_rdma_handle_recv: PRISKV_COMMAND_GET_AND_PIN "
+                                     "use user token %d\n",
+                                     token);
+                }
+                priskv_pin_key(conn->kv, key, keylen, token, keynode);
+            } else if (command == PRISKV_COMMAND_GET_AND_UNPIN) {
+                priskv_unpin_key(conn->kv, key, keylen, token, keynode);
+                priskv_log_debug("RDMA: priskv_rdma_handle_recv: PRISKV_COMMAND_GET_AND_UNPIN "
+                                 "use user token %d\n",
+                                 token);
+            }
+            ret = priskv_rdma_rw_req(conn, req, conn->value_mr, val, valuelen, token, false,
+                                     priskv_get_key_end, keynode, false, NULL);
 
             gettimeofday(&server_data_send_time, NULL);
             req->runtime.server_data_send_time = server_data_send_time;
@@ -1385,7 +1423,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
                                                               PRISKV_COMMAND_GET, remote_valuelen,
                                                               &alloc_status);
             if (!treq) {
-                ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0);
+                ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0 /* length */,
+                                                0 /* pin_token */);
                 break;
             }
 
@@ -1399,14 +1438,16 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
 
         remote_valuelen = priskv_sgl_size_from_be(req->sgls, nsgl);
         if (!remote_valuelen) {
-            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_EMPTY, 0);
+            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_EMPTY,
+                                            0 /* length */, 0 /* pin_token */);
             break;
         }
 
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_set_key(conn->kv, key, keylen, &val, remote_valuelen, timeout, &keynode);
             if (status != PRISKV_RESP_STATUS_OK || !keynode) {
-                ret = priskv_rdma_send_response(conn, req->request_id, status, 0);
+                ret = priskv_rdma_send_response(conn, req->request_id, status, 0 /* length */,
+                                                0 /* pin_token */);
                 priskv_set_key_end(keynode);
                 break;
             }
@@ -1414,8 +1455,9 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
             gettimeofday(&server_rw_kv_time, NULL);
             req->runtime.server_rw_kv_time = server_rw_kv_time;
 
-            ret = priskv_rdma_rw_req(conn, req, conn->value_mr, val, remote_valuelen, true,
-                                   priskv_set_key_end, keynode, false, NULL);
+            ret = priskv_rdma_rw_req(conn, req, conn->value_mr, val, remote_valuelen,
+                                     0 /* pin_token */, true, priskv_set_key_end, keynode, false,
+                                     NULL);
 
             gettimeofday(&server_data_send_time, NULL);
             req->runtime.server_data_send_time = server_data_send_time;
@@ -1427,7 +1469,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
                                                               PRISKV_COMMAND_SET, remote_valuelen,
                                                               &alloc_status);
             if (!treq) {
-                ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0);
+                ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0 /* length */,
+                                                0 /* pin_token */);
                 break;
             }
 
@@ -1440,7 +1483,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
     case PRISKV_COMMAND_TEST: {
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_get_key(conn->kv, key, keylen, &val, &valuelen, &keynode);
-            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen);
+            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen,
+                                            0 /* pin_token */);
             priskv_get_key_end(keynode);
             break;
         }
@@ -1449,7 +1493,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
         priskv_tiering_req *treq = priskv_tiering_req_new(conn, req, key, keylen, timeout,
                                                           PRISKV_COMMAND_TEST, 0, &alloc_status);
         if (!treq) {
-            ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0);
+            ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0 /* length */,
+                                            0 /* pin_token */);
             break;
         }
 
@@ -1461,7 +1506,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
     case PRISKV_COMMAND_DELETE: {
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_delete_key(conn->kv, key, keylen);
-            ret = priskv_rdma_send_response(conn, req->request_id, status, 0);
+            ret = priskv_rdma_send_response(conn, req->request_id, status, 0 /* length */,
+                                            0 /* pin_token */);
             break;
         }
 
@@ -1469,7 +1515,8 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
         priskv_tiering_req *treq = priskv_tiering_req_new(conn, req, key, keylen, timeout,
                                                           PRISKV_COMMAND_DELETE, 0, &alloc_status);
         if (!treq) {
-            ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0);
+            ret = priskv_rdma_send_response(conn, req->request_id, alloc_status, 0 /* length */,
+                                            0 /* pin_token */);
             break;
         }
 
@@ -1480,20 +1527,23 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
 
     case PRISKV_COMMAND_EXPIRE:
         status = priskv_expire_key(conn->kv, key, keylen, timeout);
-        ret = priskv_rdma_send_response(conn, req->request_id, status, 0);
+        ret = priskv_rdma_send_response(conn, req->request_id, status, 0 /* length */,
+                                        0 /* pin_token */);
         break;
 
     case PRISKV_COMMAND_KEYS:
         if (rmem->mr) {
             /* a single KEYS command is allowed inflight with a connection */
-            priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, 0);
+            priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM,
+                                      0 /* length */, 0 /* pin_token */);
             ret = 0;
             break;
         }
 
         remote_valuelen = priskv_sgl_size_from_be(req->sgls, nsgl);
         if (priskv_rdma_mem_new(conn, rmem, "Keys", remote_valuelen)) {
-            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, valuelen);
+            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM,
+                                            valuelen, 0 /* pin_token */);
             break;
         }
 
@@ -1501,15 +1551,17 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
             priskv_get_keys(conn->kv, key, keylen, rmem->buf, remote_valuelen, &valuelen, &nkeys);
         if ((status != PRISKV_RESP_STATUS_OK) || !valuelen) {
             priskv_rdma_mem_free(conn, rmem);
-            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen);
+            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen,
+                                            0 /* pin_token */);
             break;
         }
 
-        ret = priskv_rdma_rw_req(conn, req, rmem->mr, rmem->buf, valuelen, false, NULL, NULL, false,
-                               NULL);
+        ret = priskv_rdma_rw_req(conn, req, rmem->mr, rmem->buf, valuelen, 0 /* pin_token */, false,
+                                 NULL, NULL, false, NULL);
         if (ret) {
             priskv_rdma_mem_free(conn, rmem);
-            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen);
+            ret = priskv_rdma_send_response(conn, req->request_id, status, valuelen,
+                                            0 /* pin_token */);
         }
         break;
 
@@ -1517,20 +1569,23 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
         status = priskv_get_keys(conn->kv, key, keylen, NULL, 0, &valuelen, &nkeys);
         /* PRISKV_RESP_STATUS_VALUE_TOO_BIG is expected */
         if (status == PRISKV_RESP_STATUS_VALUE_TOO_BIG) {
-            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, nkeys);
+            ret = priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, nkeys,
+                                            0 /* pin_token */);
             break;
         }
-        ret = priskv_rdma_send_response(conn, req->request_id, status, 0);
+        ret = priskv_rdma_send_response(conn, req->request_id, status, 0 /* length */,
+                                        0 /* pin_token */);
         break;
 
     case PRISKV_COMMAND_FLUSH:
         status = priskv_flush_keys(conn->kv, key, keylen, &nkeys);
-        ret = priskv_rdma_send_response(conn, req->request_id, status, nkeys);
+        ret = priskv_rdma_send_response(conn, req->request_id, status, nkeys, 0 /* pin_token */);
         break;
 
     default:
         priskv_log_warn("RDMA: <%s - %s> unknown command %d\n", local_addr, peer_addr, command);
-        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_SUCH_COMMAND, 0);
+        priskv_rdma_send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_SUCH_COMMAND,
+                                  0 /* length */, 0 /* pin_token */);
         ret = -EPROTO;
     }
 

@@ -45,7 +45,7 @@ typedef struct priskv_key {
     pthread_spinlock_t lock;
     uint32_t refcnt;
     bool inprocess;
-    bool reserved[3];
+    bool reserved[2];
     uint16_t keylen;
     uint32_t valuelen;
     uint64_t value_off; /* offset from value blocks. [0, blocks * block size) */

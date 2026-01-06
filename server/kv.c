@@ -85,6 +85,7 @@ typedef struct priskv_kv {
     // lru head
     struct list_head lru_head;
     pthread_spinlock_t lru_lock;
+    pthread_spinlock_t token_lock;
 
     uint32_t bucket_count;
     uint32_t max_keys;
@@ -96,6 +97,7 @@ typedef struct priskv_kv {
     uint8_t *value_base;              /* buddy memory base address */
     uint32_t expire_routine_interval; /* interval to run expire routine */
     priskv_expire_routine_statics expire_routine_statics;
+    uint64_t next_token;
 } priskv_kv;
 
 static void priskv_lru_access(priskv_key *keynode, bool is_in_list)
@@ -389,6 +391,36 @@ int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint
     priskv_lru_access(keynode, true);
 
     return PRISKV_RESP_STATUS_OK;
+}
+
+uint64_t priskv_next_token(void *_kv)
+{
+    priskv_kv *kv = _kv;
+    pthread_spin_lock(&kv->lru_lock);
+    uint64_t ret = kv->next_token;
+    kv->next_token++;
+    pthread_spin_unlock(&kv->lru_lock);
+    return ret;
+}
+
+void priskv_pin_key(void *_kv, uint8_t *key, uint16_t keylen, uint64_t token, void *keynode)
+{
+    if (!keynode) {
+        return;
+    }
+    // TODO(wangyi) insert record into pin manager
+
+    priskv_keynode_ref(keynode);
+}
+
+void priskv_unpin_key(void *_kv, uint8_t *key, uint16_t keylen, uint64_t token, void *keynode)
+{
+    if (!keynode) {
+        return;
+    }
+    // TODO(wangyi) delete record in pin manager
+
+    priskv_keynode_deref(keynode);
 }
 
 void priskv_get_key_end(void *arg)
