@@ -52,6 +52,18 @@ typedef struct priskv_key {
     uint8_t key[0];     /* pointer to a slab element */
 } priskv_key;
 
+typedef struct priskv_pin_keynode {
+    struct list_node entry;
+    priskv_key *key_ptr;
+} priskv_pin_keynode;
+
+typedef struct priskv_pin_operator {
+    struct list_node entry;
+    struct list_head pin_keys_head;
+    uint64_t token;
+    pthread_spinlock_t lock;
+} priskv_pin_operator;
+
 #define PRISKV_MEM_MAGIC ('H' << 24 | 'P' << 16 | 'K' << 8 | 'V')
 #define PRISKV_MEM_ALIGN_UP 4096
 #define PRISKV_MEM_HEADER_SIZE 4096

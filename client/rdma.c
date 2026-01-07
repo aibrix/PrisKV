@@ -1752,7 +1752,6 @@ int priskv_get_and_pin_async(priskv_client *client, const char *key, priskv_sgl 
         cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
         return 0;
     }
-    // TODO(wangyi) implement
     priskv_send_command(client, request_id, key, sgl, nsgl, 0 /*timeout*/, pin_token,
                         PRISKV_COMMAND_GET_AND_PIN, cb);
     return 0;
@@ -1766,7 +1765,6 @@ int priskv_get_and_unpin_async(priskv_client *client, const char *key, priskv_sg
         cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
         return 0;
     }
-    // TODO(wangyi) implement
     priskv_send_command(client, request_id, key, sgl, nsgl, 0 /*timeout*/, pin_token,
                         PRISKV_COMMAND_GET_AND_UNPIN, cb);
     return 0;

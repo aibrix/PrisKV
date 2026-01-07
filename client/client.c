@@ -255,7 +255,7 @@ static void get_and_pin_handler(client_context *ctx, char *args)
 {
     char *key;
     uint32_t valuelen;
-    uint64_t pin_token = 7; /* for debug */
+    uint64_t pin_token = 0;
     priskv_sgl sgl;
     priskv_status status;
 
@@ -282,6 +282,50 @@ static void get_and_pin_handler(client_context *ctx, char *args)
     printf("GET status(%d): %s\n", status, priskv_status_str(status));
     printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
     printf("PIN token[%lu]\n", pin_token);
+}
+
+static void get_and_unpin_handler(client_context *ctx, char *args)
+{
+    char *key;
+    uint32_t valuelen;
+    uint64_t pin_token = 0;
+    priskv_sgl sgl;
+    priskv_status status;
+
+    key = strtok_r(args, " ", &args);
+    if (!key) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+
+    char *opt;
+    if (strlen(args) > 0) {
+        opt = strtok_r(args, " ", &args);
+        errno = 0;
+        char *endptr;
+        pin_token = strtoll(opt, &endptr, 10);
+        if (errno != 0) {
+            printf("GET unpin token is error, the param should be a positive integer number\n");
+        }
+    }
+
+    memset(ctx->buf, 0x00, VALUE_MAX_LEN);
+
+    sgl.iova = (uint64_t)ctx->buf;
+    sgl.length = VALUE_MAX_LEN;
+    sgl.mem = ctx->priskvmem;
+
+    printf("UGET key=%s token=%d\n", key, pin_token);
+    status = priskv_get_and_unpin(ctx->client, key, &sgl, 1, pin_token, &valuelen);
+    if (status != PRISKV_STATUS_OK) {
+        printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+        return;
+    }
+
+    ((char *)ctx->buf)[valuelen] = '\0';
+    printf("GET status(%d): %s\n", status, priskv_status_str(status));
+    printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
+    printf("UNPIN token[%lu]\n", pin_token);
 }
 
 static void test_handler(client_context *ctx, char *args)
@@ -454,6 +498,7 @@ static priskv_command commands[] = {
      "set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
     {"get", get_handler, "get KEY\t\t\t\t\t\tget key:value from priskv\n"},
     {"pget", get_and_pin_handler, "get and pin KEY\t\t\t\t\t\tget key:value from priskv\n"},
+    {"uget", get_and_unpin_handler, "get and unpin KEY\t\t\t\t\t\tget key:value from priskv\n"},
     {"test", test_handler, "test KEY\t\t\t\t\t\ttest if the key exists in priskv\n"},
     {"delete", delete_handler, "delete KEY\t\t\t\t\t\tdelete the key from priskv\n"},
     {"expire", expire_handler, "expire KEY seconds\t\t\t\t\tset expire time for key\n"},

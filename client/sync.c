@@ -90,6 +90,19 @@ int priskv_get_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, 
     return rdma_req_sync.status;
 }
 
+int priskv_get_and_unpin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                         uint64_t pin_token, uint32_t *valuelen)
+{
+    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+
+    priskv_get_and_unpin_async(client, key, sgl, nsgl, pin_token, (uint64_t)&rdma_req_sync,
+                               priskv_common_sync_cb);
+    priskv_sync_wait(client, &rdma_req_sync.done);
+    *valuelen = rdma_req_sync.valuelen;
+
+    return rdma_req_sync.status;
+}
+
 int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout)
 {
     priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};

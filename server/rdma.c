@@ -1403,9 +1403,9 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_request *req, 
                                      "use user token %d\n",
                                      token);
                 }
-                priskv_pin_key(conn->kv, key, keylen, token, keynode);
+                priskv_pin_key(conn->kv, token, keynode);
             } else if (command == PRISKV_COMMAND_GET_AND_UNPIN) {
-                priskv_unpin_key(conn->kv, key, keylen, token, keynode);
+                priskv_unpin_key(conn->kv, token, keynode);
                 priskv_log_debug("RDMA: priskv_rdma_handle_recv: PRISKV_COMMAND_GET_AND_UNPIN "
                                  "use user token %d\n",
                                  token);
