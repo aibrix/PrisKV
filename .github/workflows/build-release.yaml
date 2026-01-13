@@ -111,6 +111,8 @@ jobs:
     permissions:
       id-token: write
     name: publish
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: 3.5
     steps:
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
@@ -131,7 +133,6 @@ jobs:
                               gcc \
                               g++ \
                               make \
-                              cmake \
                               binutils \
                               libibverbs-dev \
                               librdmacm-dev \
@@ -142,6 +143,24 @@ jobs:
                               libonig-dev \
                               libhiredis-dev \
                               liburing-dev
+
+          # install cmake
+          cd /tmp && \
+          wget -q https://cmake.org/files/v4.1/cmake-4.1.3-linux-x86_64.sh && \
+          sudo bash cmake-4.1.3-linux-x86_64.sh --skip-license --prefix=/usr && \
+          rm cmake-4.1.3-linux-x86_64.sh && \
+          cd -
+
+          # libevhtp uses TestEndianess.c.in
+          sudo ln -s /usr/share/cmake-4.1/Modules/TestEndianness.c.in /usr/share/cmake-4.1/Modules/TestEndianess.c.in
+
+          # install ucx
+          cd /tmp && \
+          wget -q https://github.com/openucx/ucx/releases/download/v1.19.0/ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+          tar xvf ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+          sudo dpkg -i ucx-1.19.0.deb ucx-cuda-1.19.0.deb ucx-xpmem-1.19.0.deb && \
+          rm /tmp/ucx-1.19.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 /tmp/ucx-1.19.0.deb /tmp/ucx-cuda-1.19.0.deb /tmp/ucx-xpmem-1.19.0.deb && \
+          cd -
 
           # install python dependencies
           pip install -r requirements.txt
