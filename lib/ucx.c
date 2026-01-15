@@ -582,8 +582,7 @@ callback:
 }
 
 static void priskv_ucx_worker_drain_cb_intl(void *request, ucs_status_t status,
-                                            const ucp_tag_recv_info_t * /* info */,
-                                            void * /* arg */)
+                                            const ucp_tag_recv_info_t *info, void *arg)
 {
     // do nothing
 }
