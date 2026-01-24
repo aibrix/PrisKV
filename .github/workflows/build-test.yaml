@@ -16,7 +16,7 @@ name: PrisKV CI
 
 on:
   push:
-    branches: [ "main", "release-*" ]
+    branches: [ "main", "release-*", "dev" ]
     paths-ignore:
       - 'docker/'
       - 'man/'
@@ -24,7 +24,7 @@ on:
       - '**/*.md'
       - '**/*.txt'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
     paths-ignore:
       - 'docker/'
       - 'man/'
