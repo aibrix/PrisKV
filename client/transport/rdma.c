@@ -1297,10 +1297,6 @@ static int priskv_rdma_req_send(void *arg)
     return 0;
 }
 
-static inline void priskv_rdma_req_submit(priskv_transport_req *rdma_req)
-{
-    rdma_req->ops->submit_req(rdma_req);
-}
 
 static inline void priskv_rdma_req_delay_send(priskv_transport_conn *conn)
 {

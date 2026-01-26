@@ -1391,10 +1391,6 @@ static int priskv_ucx_send_req(void *arg)
     return 0;
 }
 
-static inline void priskv_ucx_req_submit(priskv_transport_req *ucx_req)
-{
-    ucx_req->ops->submit_req(ucx_req);
-}
 
 static void priskv_ucx_req_delay_send(priskv_transport_conn *conn)
 {
