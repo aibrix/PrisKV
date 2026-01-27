@@ -40,7 +40,7 @@ UCX_CFLAGS = $(shell pkg-config --cflags ucx)
 UCX_LIBS = $(shell pkg-config --libs ucx)
 ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV): $(OBJS)
-	$(CC) test_kv.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV) -lmount -lrdmacm -libverbs $(UCX_LIBS)
+	$(CC) test_kv.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../../lib/config.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV) -lmount -lrdmacm -libverbs $(UCX_LIBS)
 else
 $(TEST_KV):
 	@echo "UCX not available, skip $(TEST_KV)"
@@ -48,7 +48,7 @@ endif
 
 ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV_MT): $(OBJS)
-	$(CC) test_kv_mt.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_MT) -lmount -lrdmacm -libverbs $(UCX_LIBS)
+	$(CC) test_kv_mt.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../../lib/config.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_MT) -lmount -lrdmacm -libverbs $(UCX_LIBS)
 else
 $(TEST_KV_MT):
 	@echo "UCX not available, skip $(TEST_KV_MT)"
@@ -62,7 +62,7 @@ $(TEST_ACL): $(OBJS)
 
 ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV_EXPIRE_ROUTINE): $(OBJS)
-	$(CC) test_kv_expire_routine.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_EXPIRE_ROUTINE) -lmount -lpthread -lrdmacm -libverbs $(UCX_LIBS)
+	$(CC) test_kv_expire_routine.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../../lib/config.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_EXPIRE_ROUTINE) -lmount -lpthread -lrdmacm -libverbs $(UCX_LIBS)
 else
 $(TEST_KV_EXPIRE_ROUTINE):
 	@echo "UCX not available, skip $(TEST_KV_EXPIRE_ROUTINE)"

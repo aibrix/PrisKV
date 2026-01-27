@@ -37,12 +37,6 @@ extern "C"
 typedef struct priskv_conn_operation priskv_conn_operation;
 typedef struct priskv_transport_conn priskv_transport_conn;
 
-typedef enum priskv_transport_backend {
-    PRISKV_TRANSPORT_BACKEND_UCX,
-    PRISKV_TRANSPORT_BACKEND_RDMA,
-    PRISKV_TRANSPORT_BACKEND_MAX,
-} priskv_transport_backend;
-
 typedef enum priskv_transport_mem_type {
     PRISKV_TRANSPORT_MEM_REQ,
     PRISKV_TRANSPORT_MEM_RESP,

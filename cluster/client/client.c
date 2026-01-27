@@ -33,6 +33,7 @@
 #include <time.h>
 
 #include "client.h"
+#include "priskv-config.h"
 #include "priskv-log.h"
 #include "priskv-utils.h"
 #include "priskv-event.h"
@@ -41,11 +42,7 @@
 #include "crc16.h"
 #include "list.h"
 
-#define PRISKV_META_DATA_KEY "priskv_cluster_metadata"
-#define PRISKV_META_SERVER_CONNECT_TIMEOUT_SECOND 5
 #define PRISKV_CLUSTER_SLOTS 4096
-#define PRISKV_DEFAULT_NQUEUE 0
-#define META_DATA_UPDATE_INTERVAL 5
 
 typedef struct priskvClusterMetaServer priskvClusterMetaServer;
 typedef struct priskvClusterMetaData priskvClusterMetaData;
@@ -117,7 +114,7 @@ struct priskvClusterRequest {
 static int priskvClusterMetaServerConnect(priskvClusterMetaServer *metaServer, const char *addr,
                                         int port, const char *password)
 {
-    struct timeval timeout = {PRISKV_META_SERVER_CONNECT_TIMEOUT_SECOND, 0};
+    struct timeval timeout = {g_config.client.meta_server_connect_timeout_sec, 0};
 
     metaServer->redisCtx = redisConnectWithTimeout(addr, port, timeout);
     if (!metaServer->redisCtx || metaServer->redisCtx->err) {
@@ -171,7 +168,7 @@ static priskvClusterMetaDataInfo *priskvClusterMetaDataGetFromServer(priskvClust
     priskvClusterMetaDataInfo *info = NULL;
     redisReply *reply;
 
-    reply = redisCommand(client->metaServer.redisCtx, "GET %s", PRISKV_META_DATA_KEY);
+    reply = redisCommand(client->metaServer.redisCtx, "GET %s", g_config.client.metadata_key);
 
     priskv_log_debug("priskvClusterMetaData: %s\n", reply->str);
 
@@ -224,7 +221,7 @@ static inline int priskvClusterNodeOpen(priskvClusterClient *client, priskvClust
     node->id = id;
     node->addr = strdup(nodeInfo->addr);
     node->port = nodeInfo->port;
-    node->client = priskv_connect(nodeInfo->addr, nodeInfo->port, NULL, 0, PRISKV_DEFAULT_NQUEUE);
+    node->client = priskv_connect(nodeInfo->addr, nodeInfo->port, NULL, 0, g_config.client.nqueue);
     node->refCount = 0;
     if (!node->client) {
         priskv_log_error("Failed to connect to node %s:%d\n", nodeInfo->addr, nodeInfo->port);
@@ -596,8 +593,9 @@ static void priskvClusterTimerHandler(int fd, void *opaque, uint32_t events)
 
 static int createMetaTimer(priskvClusterClient *client)
 {
-    struct itimerspec its = {.it_interval = {.tv_sec = META_DATA_UPDATE_INTERVAL, .tv_nsec = 0},
-                             .it_value = {.tv_sec = META_DATA_UPDATE_INTERVAL, .tv_nsec = 0}};
+    struct itimerspec its = {
+        .it_interval = {.tv_sec = g_config.client.metadata_update_interval_sec, .tv_nsec = 0},
+        .it_value = {.tv_sec = g_config.client.metadata_update_interval_sec, .tv_nsec = 0}};
 
     int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
     if (tfd < 0) {

@@ -49,12 +49,6 @@ extern "C"
 
 extern uint32_t g_slow_query_threshold_latency_us;
 
-typedef enum priskv_transport_backend {
-    PRISKV_TRANSPORT_BACKEND_UCX,
-    PRISKV_TRANSPORT_BACKEND_RDMA,
-    PRISKV_TRANSPORT_BACKEND_MAX,
-} priskv_transport_backend;
-
 typedef struct priskv_transport_stats {
     uint64_t ops;
     uint64_t bytes;

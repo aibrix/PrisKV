@@ -27,6 +27,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#include "priskv-config.h"
 #include "priskv-event.h"
 #include "priskv-log.h"
 
@@ -59,18 +60,9 @@ static int priskv_build_check(void)
 static void __attribute__((constructor)) priskv_client_transport_init(void)
 {
     assert(!priskv_build_check());
+    priskv_config_init();
 
-    const char *transport_env = getenv("PRISKV_TRANSPORT");
-    priskv_transport_backend backend = PRISKV_TRANSPORT_BACKEND_RDMA;
-    if (transport_env) {
-        if (strcasecmp(transport_env, "UCX") == 0) {
-            backend = PRISKV_TRANSPORT_BACKEND_UCX;
-        } else if (strcasecmp(transport_env, "RDMA") == 0) {
-            backend = PRISKV_TRANSPORT_BACKEND_RDMA;
-        } else {
-            priskv_log_error("Unknown transport backend: %s\n", transport_env);
-        }
-    }
+    priskv_transport_backend backend = g_config.transport;
 
     priskv_transport_driver *driver = NULL;
     switch (backend) {
@@ -96,10 +88,7 @@ static void __attribute__((constructor)) priskv_client_transport_init(void)
 
     if (driver) {
         g_client_driver = driver;
-        return 0;
     }
-
-    return -1;
 }
 
 void priskv_keyset_free(priskv_keyset *keyset)

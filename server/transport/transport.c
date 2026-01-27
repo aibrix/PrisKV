@@ -16,6 +16,7 @@
 #include <strings.h>
 
 #include "../kv.h"
+#include "priskv-config.h"
 #include "priskv-event.h"
 #include "priskv-log.h"
 #include "priskv-threads.h"
@@ -42,17 +43,9 @@ void priskv_tiering_del(priskv_tiering_req *treq);
 
 static void __attribute__((constructor)) priskv_server_transport_init(void)
 {
-    const char *transport_env = getenv("PRISKV_TRANSPORT");
-    priskv_transport_backend backend = PRISKV_TRANSPORT_BACKEND_RDMA;
-    if (transport_env) {
-        if (strcasecmp(transport_env, "UCX") == 0) {
-            backend = PRISKV_TRANSPORT_BACKEND_UCX;
-        } else if (strcasecmp(transport_env, "RDMA") == 0) {
-            backend = PRISKV_TRANSPORT_BACKEND_RDMA;
-        } else {
-            priskv_log_error("Unknown transport backend: %s\n", transport_env);
-        }
-    }
+    priskv_config_init();
+
+    priskv_transport_backend backend = g_config.transport;
 
     priskv_transport_driver *driver = NULL;
     switch (backend) {
@@ -78,10 +71,7 @@ static void __attribute__((constructor)) priskv_server_transport_init(void)
 
     if (driver) {
         g_transport_driver = driver;
-        return 0;
     }
-
-    return -1;
 }
 
 int priskv_transport_listen(char **addr, int naddr, int port, void *kv,
