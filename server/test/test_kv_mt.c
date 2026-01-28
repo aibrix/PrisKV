@@ -255,8 +255,8 @@ int main()
 
     key_base = calloc(MAX_KEYS, priskv_mem_key_size(MAX_KEY_LENGTH));
     value_base = calloc(1, priskv_buddy_mem_size(VALUE_BLOCKS, VALUE_BLOCK_SIZE));
-    kv =
-        priskv_new_kv(key_base, value_base, MAX_KEYS, MAX_KEY_LENGTH, VALUE_BLOCK_SIZE, VALUE_BLOCKS);
+    kv = priskv_new_kv(key_base, value_base, -1, 0, MAX_KEYS, MAX_KEY_LENGTH, VALUE_BLOCK_SIZE,
+                       VALUE_BLOCKS);
     assert(kv);
 
     for (uint32_t i = 0; i < NUM_THREADS; i++) {

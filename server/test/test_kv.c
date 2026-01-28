@@ -195,7 +195,8 @@ static int get_keys(void *kv, test_kv *test_kvs, uint32_t max_keys)
     }
 
     /* use a small buffer, segment fault on bug */
-    keysbuf = priskv_mem_malloc(totalkeylen / 2, true);
+    keysbuf =
+        priskv_mem_malloc(totalkeylen / 2, MAP_PRIVATE | MAP_ANONYMOUS, -1, true);
     ret = priskv_get_keys(kv, (uint8_t *)".*", 2, keysbuf, totalkeylen / 2, &reallen, &nkey);
     if (ret != PRISKV_RESP_STATUS_VALUE_TOO_BIG) {
         printf("TEST KV: get regex (.) from empty KV in short buffer [FAILED]\n");
@@ -209,7 +210,7 @@ static int get_keys(void *kv, test_kv *test_kvs, uint32_t max_keys)
     printf("TEST KV: get regex (.) from empty KV in short buffer [OK]\n");
 
     /* use a large buffer, verify all keys */
-    keysbuf = priskv_mem_malloc(totalkeylen, true);
+    keysbuf = priskv_mem_malloc(totalkeylen, MAP_PRIVATE | MAP_ANONYMOUS, -1, true);
     ret = priskv_get_keys(kv, (uint8_t *)".*", 2, keysbuf, totalkeylen, &reallen, &nkey);
     if (ret != PRISKV_RESP_STATUS_OK) {
         printf("TEST KV: get regex (.) from empty KV in large buffer [FAILED]\n");
@@ -702,8 +703,8 @@ static int test_hash_bucket_count()
     value_base = calloc(1, priskv_buddy_mem_size(value_blocks, value_block_size));
 
     for (int i = 0; i < len; i++) {
-        kv = priskv_new_kv(key_base, value_base, keys_bucket_pair[i].max_keys, max_key_length,
-                         value_block_size, value_blocks);
+        kv = priskv_new_kv(key_base, value_base, -1, 0, keys_bucket_pair[i].max_keys, max_key_length,
+                           value_block_size, value_blocks);
         assert(kv);
 
         if (priskv_get_bucket_count(kv) != keys_bucket_pair[i].bucket_count) {
@@ -750,8 +751,8 @@ int main()
 
     key_base = calloc(max_keys, priskv_mem_key_size(max_key_length));
     value_base = calloc(1, priskv_buddy_mem_size(value_blocks, value_block_size));
-    kv =
-        priskv_new_kv(key_base, value_base, max_keys, max_key_length, value_block_size, value_blocks);
+    kv = priskv_new_kv(key_base, value_base, -1, 0, max_keys, max_key_length, value_block_size,
+                       value_blocks);
     assert(kv);
 
     /* step 1, get keys from empty KV */

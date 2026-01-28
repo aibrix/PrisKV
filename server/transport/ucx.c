@@ -23,6 +23,7 @@
 #include <arpa/inet.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <unistd.h>
 
 #include <ucs/sys/string.h>
 #include <ucs/sys/sock.h>
@@ -256,6 +257,8 @@ static inline int priskv_ucx_accept(priskv_transport_conn *client)
     hs->cap.max_key_length = htobe16(client->conn_cap.max_key_length);
     hs->cap.max_inflight_command = htobe16(client->conn_cap.max_inflight_command);
     hs->cap.capacity = htobe64(client->conn_cap.capacity);
+    hs->cap.shm_pid = htobe32(client->conn_cap.shm_pid);
+    hs->cap.shm_fd = htobe32(client->conn_cap.shm_fd);
     hs->address_len = htobe32(address_len);
     memcpy(hs->address, client->worker->address, address_len);
 
@@ -342,6 +345,8 @@ static inline void priskv_ucx_handle_cm(int fd, void *opaque, uint32_t ev)
     client->conn_cap.max_sgl = be16toh(peer_hs.cap.max_sgl);
     client->conn_cap.max_key_length = be32toh(peer_hs.cap.max_key_length);
     client->conn_cap.max_inflight_command = be16toh(peer_hs.cap.max_inflight_command);
+    client->conn_cap.shm_pid = listener->conn_cap.shm_pid;
+    client->conn_cap.shm_fd = listener->conn_cap.shm_fd;
     size_t peer_worker_address_len = be32toh(peer_hs.address_len);
 
     if (peer_worker_address_len > 0) {
@@ -582,14 +587,14 @@ static int priskv_ucx_listen_one(char *addr, int port, void *kv, priskv_transpor
     listener->kv = kv;
     listener->conn_cap = *cap;
     listener->conn_cap.capacity = size;
-    listener->conn_cap_be.version = htobe16(PRISKV_CM_VERSION);
-    listener->conn_cap_be.max_sgl = htobe16(cap->max_sgl);
-    listener->conn_cap_be.max_key_length = htobe16(cap->max_key_length);
-    listener->conn_cap_be.max_inflight_command = htobe16(cap->max_inflight_command);
-    listener->conn_cap_be.capacity = htobe64(size);
+    listener->conn_cap.shm_pid = getpid();
+    listener->conn_cap.shm_fd = priskv_get_shm_fd(kv);
     listener->s.nclients = 0;
     list_head_init(&listener->s.head);
     pthread_spin_init(&listener->lock, 0);
+
+    priskv_log_debug("UCX: shm pid %d, shm fd %d\n", listener->conn_cap.shm_pid,
+                     listener->conn_cap.shm_fd);
 
     listener->efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (listener->efd < 0) {
@@ -672,7 +677,7 @@ static int priskv_ucx_mem_new(priskv_transport_conn *conn, priskv_transport_mem 
     uint8_t *buf;
     int ret;
 
-    buf = priskv_mem_malloc(size, guard);
+    buf = priskv_mem_malloc(size, MAP_PRIVATE | MAP_ANONYMOUS, -1, guard);
     if (!buf) {
         priskv_log_error("UCX: failed to allocate %s buffer: %m\n", name);
         ret = -ENOMEM;

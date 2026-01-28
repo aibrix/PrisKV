@@ -154,6 +154,7 @@ typedef struct priskv_response {
  * @max_inflight_command: max inflight command(aka command depth) supported by
  * server/client.
  * @capacity: max capacity in bytes supported by server.
+ * @shm_fd: shm fd of server. Set to -1 if server is not enabled with shared memory.
  *
  * @max_sgl, @max_key_length, @max_inflight_command of client must be less than
  * or equal to the limitations from the server side, otherwise the connection
@@ -165,7 +166,9 @@ typedef struct priskv_cm_cap {
     uint16_t max_key_length;
     uint16_t max_inflight_command;
     uint64_t capacity;
-    uint8_t reserved[16];
+    uint32_t shm_pid;
+    int shm_fd;
+    uint8_t reserved[8];
 } priskv_cm_cap;
 
 typedef struct __attribute__((packed)) priskv_cm_ucx_handshake {

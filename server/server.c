@@ -353,19 +353,21 @@ static void *priskv_server_create_kv()
 
     uint8_t *key_base = priskv_mem_key_addr(mf_ctx);
     uint8_t *value_base = priskv_mem_value_addr(mf_ctx);
+    int shm_fd = priskv_mem_shm_fd(mf_ctx);
+    uint64_t shm_len = priskv_mem_shm_length(mf_ctx);
 
     if (memfile) {
         priskv_mem_header *hdr = (priskv_mem_header *)priskv_mem_header_addr(mf_ctx);
-        kv = priskv_new_kv(key_base, value_base, hdr->max_keys, hdr->max_key_length,
-                         hdr->value_block_size, hdr->value_blocks);
+        kv = priskv_new_kv(key_base, value_base, shm_fd, shm_len, hdr->max_keys,
+                           hdr->max_key_length, hdr->value_block_size, hdr->value_blocks);
 
         /* try to recver key-value from memory file */
         if (priskv_recover(kv)) {
             return NULL;
         }
     } else {
-        kv = priskv_new_kv(key_base, value_base, max_key, conn_cap.max_key_length, value_block_size,
-                         value_block);
+        kv = priskv_new_kv(key_base, value_base, shm_fd, shm_len, max_key, conn_cap.max_key_length,
+                           value_block_size, value_block);
     }
 
     return kv;

@@ -43,14 +43,19 @@ typedef struct priskv_transport_conn priskv_transport_conn;
 
 #define PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL 600
 
-void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
-                  uint16_t max_key_length, uint32_t value_block_size, uint64_t value_blocks);
+void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
+                    uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
+                    uint64_t value_blocks);
 
 void priskv_destroy_kv(void *kv);
 
 int priskv_recover(void *kv);
 
 void *priskv_get_value_base(void *kv);
+
+int priskv_get_shm_fd(void *kv);
+
+uint64_t priskv_get_shm_length(void *kv);
 
 uint64_t priskv_get_value_blocks(void *kv);
 

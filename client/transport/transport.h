@@ -149,6 +149,8 @@ typedef struct priskv_transport_conn {
     priskv_connect_param param;
     uint64_t capacity;
     int epollfd;
+    uint32_t shm_pid;
+    int shm_fd;
     priskv_transport_conn_state state;
     struct list_head inflight_list;
     struct list_head complete_list;
@@ -170,6 +172,9 @@ typedef struct priskv_client {
     int epollfd;
     priskv_workqueue *wq;
     priskv_conn_operation *ops;
+    void *shm_addr;
+    int shm_fd;
+    uint64_t shm_len;
 } priskv_client;
 
 typedef struct priskv_conn_operation {

@@ -22,6 +22,16 @@ else
 CFLAGS += -Wduplicated-branches -Wrestrict
 endif
 
+CUDA_HOME ?= /usr/local/cuda
+CUDA_LIB ?= $(CUDA_HOME)/lib64
+CUDA_INC ?= $(CUDA_HOME)/include
+CUDARTLIB  ?= cudart_static
+CUDA_LDFLAGS = -I$(CUDA_INC) -L$(CUDA_LIB) -l$(CUDARTLIB) -lcuda -ldl -lrt
+
+ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
+CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
+endif
+
 ifneq ($(PRISKV_RELEASE),)
 CFLAGS += -O2
 else

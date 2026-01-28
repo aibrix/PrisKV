@@ -20,6 +20,8 @@ extern "C"
 {
 #endif
 
+#include <stdbool.h>
+
 #include <ucs/config/parser.h>
 #include <ucs/config/types.h>
 #include <ucs/sys/compiler_def.h>
@@ -100,10 +102,16 @@ typedef struct priskv_server_config {
 
 } priskv_server_config_t;
 
+typedef struct priskv_mem_config {
+    bool use_shm;
+    bool use_cuda;
+} priskv_mem_config_t;
+
 typedef struct priskv_config {
     priskv_transport_backend transport;
     priskv_client_config_t client;
     priskv_server_config_t server;
+    priskv_mem_config_t mem;
 } priskv_config_t;
 
 extern priskv_config_t g_config;

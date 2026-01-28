@@ -32,8 +32,10 @@ extern "C"
 {
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include <sys/mman.h>
 
 #include "list.h"
 
@@ -105,7 +107,7 @@ void *priskv_mem_anon(uint16_t max_key_length, uint32_t max_keys, uint32_t value
 
 void priskv_mem_close(void *ctx);
 
-void *priskv_mem_malloc(size_t size, bool guard);
+void *priskv_mem_malloc(size_t size, int mmap_flags, int mmap_fd, bool guard);
 
 void priskv_mem_free(void *ptr, size_t size, bool guard);
 
@@ -114,6 +116,12 @@ uint8_t *priskv_mem_header_addr(void *ctx);
 uint8_t *priskv_mem_key_addr(void *ctx);
 
 uint8_t *priskv_mem_value_addr(void *ctx);
+
+int priskv_mem_shm_fd(void *ctx);
+
+uint64_t priskv_mem_shm_length(void *ctx);
+
+ptrdiff_t priskv_mem_value_offset(void *ctx, void *ptr);
 
 priskv_mem_info *priskv_mem_info_get(void);
 

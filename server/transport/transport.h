@@ -109,7 +109,6 @@ typedef struct priskv_transport_conn {
                 struct {
                     int listenfd;
                     int efd;
-                    priskv_transport_conn_cap conn_cap_be;
                 }; // listener
                 struct {
                     int connfd;
