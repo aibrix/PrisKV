@@ -100,6 +100,7 @@ typedef struct priskv_transport_req {
     priskv_sgl_private *sgl;
     uint16_t nsgl;
     uint16_t keylen;
+    uint32_t alloc_length;
     uint64_t timeout;
     priskv_req_command cmd;
     void (*cb)(struct priskv_transport_req *req);
@@ -111,6 +112,7 @@ typedef struct priskv_transport_req {
     uint8_t flags;
     uint16_t status;
     uint32_t length;
+    priskv_memory_region memory_region;
     void *result;
     bool delaying;
 } priskv_transport_req;
@@ -188,8 +190,9 @@ typedef struct priskv_conn_operation {
     void (*req_cb)(priskv_transport_req *req);
     priskv_transport_req *(*new_req)(priskv_client *client, priskv_transport_conn *conn,
                                      uint64_t request_id, const char *key, uint16_t keylen,
-                                     priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout,
-                                     priskv_req_command cmd, priskv_generic_cb usercb);
+                                     uint16_t alloc_length, priskv_sgl *sgl, uint16_t nsgl,
+                                     uint64_t timeout, priskv_req_command cmd,
+                                     priskv_generic_cb usercb);
 } priskv_conn_operation;
 
 typedef struct priskv_transport_driver {

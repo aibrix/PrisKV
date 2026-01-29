@@ -140,7 +140,7 @@ typedef struct priskv_ucx_ep {
             break;                                                                                 \
         case UCS_INPROGRESS:                                                                       \
             break;                                                                                 \
-        default:                                                                                   \
+        default:;                                                                                  \
             const char *status_str = ucs_status_string(STATUS);                                    \
             priskv_log_error(MSG ", status: %s\n", status_str);                                    \
             CLEANUP;                                                                               \
