@@ -62,6 +62,13 @@ void priskv_update_valuelen(void *arg, uint32_t valuelen);
 
 int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
                  void **_keynode);
+
+void priskv_pin_key(void *_kv, uint64_t token, void *_keynode);
+
+void priskv_unpin_key(void *_kv, uint64_t token, void *_keynode);
+
+uint64_t priskv_next_token(void *_kv);
+
 void priskv_get_key_end(void *arg);
 
 int priskv_set_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t valuelen,

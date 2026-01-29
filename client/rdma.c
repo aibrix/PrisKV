@@ -150,6 +150,7 @@ struct priskv_rdma_req {
     uint16_t nsgl;
     uint16_t keylen;
     uint64_t timeout;
+    uint64_t pin_token;
     priskv_req_command cmd;
     void (*cb)(struct priskv_rdma_req *rdma_req);
     priskv_generic_cb usercb;
@@ -160,6 +161,7 @@ struct priskv_rdma_req {
     uint16_t status;
     uint32_t length;
     void *result;
+    void *result_token;
     bool delaying;
 };
 
@@ -1259,7 +1261,8 @@ static int _priskv_rdma_req_cb(void *arg)
     priskv_rdma_req *rdma_req = arg;
 
     if (rdma_req->usercb) {
-        rdma_req->usercb(rdma_req->request_id, rdma_req->status, rdma_req->result);
+        rdma_req->usercb(rdma_req->request_id, rdma_req->status, rdma_req->result,
+                         rdma_req->result_token);
     }
 
     priskv_rdma_req_free(rdma_req);
@@ -1359,10 +1362,10 @@ void priskv_keyset_free(priskv_keyset *keyset)
 }
 
 static inline priskv_rdma_req *priskv_rdma_req_new(priskv_client *client, priskv_rdma_conn *conn,
-                                               uint64_t request_id, const char *key,
-                                               uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
-                                               uint64_t timeout, priskv_req_command cmd,
-                                               priskv_generic_cb usercb)
+                                                   uint64_t request_id, const char *key,
+                                                   uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
+                                                   uint64_t timeout, uint64_t pin_token,
+                                                   priskv_req_command cmd, priskv_generic_cb usercb)
 {
     priskv_rdma_req *rdma_req = calloc(1, sizeof(priskv_rdma_req));
     if (!rdma_req) {
@@ -1374,6 +1377,7 @@ static inline priskv_rdma_req *priskv_rdma_req_new(priskv_client *client, priskv
     rdma_req->main_wq = client->wq;
     rdma_req->cmd = cmd;
     rdma_req->timeout = timeout;
+    rdma_req->pin_token = pin_token;
     rdma_req->key = strdup(key);
     rdma_req->keylen = keylen;
     rdma_req->request_id = request_id;
@@ -1469,16 +1473,18 @@ static int priskv_rdma_req_send(void *arg)
     char key_short[16] = {0};
     priskv_string_shorten(rdma_req->key, rdma_req->keylen, key_short, sizeof(key_short));
 
-    priskv_log_debug(
-        "RDMA: Request command length %u, request_id 0x%lx, %s[0x%x], nsgl %u, key[%u] %s\n",
-        rsge.length, rdma_req->request_id, priskv_command_str(rdma_req->cmd), rdma_req->cmd,
-        rdma_req->nsgl, rdma_req->keylen, key_short);
+    priskv_log_debug("RDMA: Request command length %u, request_id 0x%lx, %s[0x%x], nsgl %u, "
+                     "key[%u] %s, token: %lu\n",
+                     rsge.length, rdma_req->request_id, priskv_command_str(rdma_req->cmd),
+                     rdma_req->cmd, rdma_req->nsgl, rdma_req->keylen, key_short,
+                     rdma_req->pin_token);
 
     req->request_id = htobe64((uint64_t)rdma_req);
     req->command = htobe16(rdma_req->cmd);
     req->nsgl = htobe16(rdma_req->nsgl);
     req->timeout = htobe64(rdma_req->timeout);
     req->key_length = htobe16(rdma_req->keylen);
+    req->token = htobe64(rdma_req->pin_token);
 
     struct timeval client_metadata_send_time;
     gettimeofday(&client_metadata_send_time, NULL);
@@ -1563,6 +1569,7 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_response *resp
     uint64_t request_id = be64toh(resp->request_id);
     uint16_t status = be16toh(resp->status);
     uint32_t length = be32toh(resp->length);
+    uint64_t pin_token = be64toh(resp->pin_token);
     priskv_rdma_req *rdma_req;
 
     if (len != sizeof(priskv_response)) {
@@ -1570,14 +1577,16 @@ static int priskv_rdma_handle_recv(priskv_rdma_conn *conn, priskv_response *resp
         return -EPROTO;
     }
 
-    priskv_log_debug("Response request_id 0x%lx, status(%d) %s, length %d\n", request_id, status,
-                   priskv_resp_status_str(status), length);
+    priskv_log_debug("Response request_id 0x%lx, status(%d) %s, length %d, pin_token %lu,\n",
+                     request_id, status, priskv_resp_status_str(status), length, pin_token);
     rdma_req = (priskv_rdma_req *)request_id;
     rdma_req->status = status;
     rdma_req->length = length;
+    rdma_req->pin_token = pin_token;
 
     if (rdma_req->cmd != PRISKV_COMMAND_KEYS) {
         rdma_req->result = &rdma_req->length;
+        rdma_req->result_token = &rdma_req->pin_token;
     }
 
     rdma_req->flags |= PRISKV_RDMA_REQ_FLAG_RECV;
@@ -1680,8 +1689,8 @@ static inline priskv_rdma_conn *priskv_select_conn(priskv_client *client)
 }
 
 static void priskv_send_command(priskv_client *client, uint64_t request_id, const char *key,
-                              priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout, priskv_req_command cmd,
-                              priskv_generic_cb cb)
+                                priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout,
+                                uint64_t pin_token, priskv_req_command cmd, priskv_generic_cb cb)
 {
     priskv_rdma_conn *conn = priskv_select_conn(client);
     priskv_connect_param *param = &conn->param;
@@ -1690,22 +1699,22 @@ static void priskv_send_command(priskv_client *client, uint64_t request_id, cons
 
     assert(cmd < PRISKV_COMMAND_MAX);
     if (!key || !keylen) {
-        cb(request_id, PRISKV_STATUS_KEY_EMPTY, NULL);
+        cb(request_id, PRISKV_STATUS_KEY_EMPTY, NULL, NULL /* result_token */);
     }
 
     if (keylen > param->max_key_length) {
-        cb(request_id, PRISKV_STATUS_KEY_TOO_BIG, NULL);
+        cb(request_id, PRISKV_STATUS_KEY_TOO_BIG, NULL, NULL /* result_token */);
     }
 
     if (nsgl > param->max_sgl) {
         priskv_log_error("RDMA: nsgl %d > max_sgl %d\n", nsgl, param->max_sgl);
-        cb(request_id, PRISKV_STATUS_INVALID_SGL, NULL);
+        cb(request_id, PRISKV_STATUS_INVALID_SGL, NULL, NULL /* result_token */);
     }
 
-    rdma_req =
-        priskv_rdma_req_new(client, conn, request_id, key, keylen, sgl, nsgl, timeout, cmd, cb);
+    rdma_req = priskv_rdma_req_new(client, conn, request_id, key, keylen, sgl, nsgl, timeout,
+                                   pin_token, cmd, cb);
     if (!rdma_req) {
-        cb(request_id, PRISKV_STATUS_NO_MEM, NULL);
+        cb(request_id, PRISKV_STATUS_NO_MEM, NULL, NULL /* result_token */);
         return;
     }
 
@@ -1716,11 +1725,11 @@ int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
                    uint64_t request_id, priskv_generic_cb cb)
 {
     if (!sgl || !nsgl) {
-        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0);
+        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
         return 0;
     }
 
-    priskv_send_command(client, request_id, key, sgl, nsgl, 0, PRISKV_COMMAND_GET, cb);
+    priskv_send_command(client, request_id, key, sgl, nsgl, 0, 0, PRISKV_COMMAND_GET, cb);
     return 0;
 }
 
@@ -1728,50 +1737,102 @@ int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
                    uint64_t timeout, uint64_t request_id, priskv_generic_cb cb)
 {
     if (!sgl || !nsgl) {
-        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0);
+        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
         return 0;
     }
 
-    priskv_send_command(client, request_id, key, sgl, nsgl, timeout, PRISKV_COMMAND_SET, cb);
+    priskv_send_command(client, request_id, key, sgl, nsgl, timeout, 0, PRISKV_COMMAND_SET, cb);
     return 0;
 }
 
+int priskv_get_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                             uint64_t pin_token, uint64_t request_id, priskv_generic_cb cb)
+{
+    if (!sgl || !nsgl) {
+        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
+        return 0;
+    }
+    priskv_send_command(client, request_id, key, sgl, nsgl, 0 /*timeout*/, pin_token,
+                        PRISKV_COMMAND_GET_AND_PIN, cb);
+    return 0;
+}
+
+int priskv_get_and_unpin_async(priskv_client *client, const char *key, priskv_sgl *sgl,
+                               uint16_t nsgl, uint64_t pin_token, uint64_t request_id,
+                               priskv_generic_cb cb)
+{
+    if (!sgl || !nsgl) {
+        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
+        return 0;
+    }
+    priskv_send_command(client, request_id, key, sgl, nsgl, 0 /*timeout*/, pin_token,
+                        PRISKV_COMMAND_GET_AND_UNPIN, cb);
+    return 0;
+}
+
+int priskv_set_and_pin_async(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                             uint64_t timeout, uint64_t pin_token, uint64_t request_id,
+                             priskv_generic_cb cb)
+{
+    if (!sgl || !nsgl) {
+        cb(request_id, PRISKV_STATUS_VALUE_EMPTY, 0, NULL /* result_token */);
+        return 0;
+    }
+    // TODO(wangyi) implement
+    priskv_send_command(client, request_id, key, sgl, nsgl, 0 /*timeout*/, 0 /*pin_token*/,
+                        PRISKV_COMMAND_SET_AND_PIN, cb);
+    return 0;
+}
+int priskv_pin_async(priskv_client *client, const char *key, uint16_t nkeys, uint64_t pin_token,
+                     uint64_t request_id, priskv_generic_cb cb)
+{
+
+    // TODO(wangyi) implement
+    return 0;
+}
+
+int priskv_unpin_async(priskv_client *client, uint64_t pin_token, uint64_t request_id,
+                       priskv_generic_cb cb)
+{
+    // TODO(wangyi) implement
+    return 0;
+}
 int priskv_test_async(priskv_client *client, const char *key, uint64_t request_id, priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, 0, PRISKV_COMMAND_TEST, cb);
+    priskv_send_command(client, request_id, key, NULL, 0, 0, 0, PRISKV_COMMAND_TEST, cb);
     return 0;
 }
 
 int priskv_delete_async(priskv_client *client, const char *key, uint64_t request_id, priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, 0, PRISKV_COMMAND_DELETE, cb);
+    priskv_send_command(client, request_id, key, NULL, 0, 0, 0, PRISKV_COMMAND_DELETE, cb);
     return 0;
 }
 
 int priskv_expire_async(priskv_client *client, const char *key, uint64_t timeout, uint64_t request_id,
                       priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, timeout, PRISKV_COMMAND_EXPIRE, cb);
+    priskv_send_command(client, request_id, key, NULL, 0, timeout, 0, PRISKV_COMMAND_EXPIRE, cb);
     return 0;
 }
 
 int priskv_keys_async(priskv_client *client, const char *regex, uint64_t request_id, priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_KEYS, cb);
+    priskv_send_command(client, request_id, regex, NULL, 0, 0, 0, PRISKV_COMMAND_KEYS, cb);
     return 0;
 }
 
 int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t request_id,
                       priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_NRKEYS, cb);
+    priskv_send_command(client, request_id, regex, NULL, 0, 0, 0, PRISKV_COMMAND_NRKEYS, cb);
     return 0;
 }
 
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
                      priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_FLUSH, cb);
+    priskv_send_command(client, request_id, regex, NULL, 0, 0, 0, PRISKV_COMMAND_FLUSH, cb);
     return 0;
 }
 

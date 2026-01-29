@@ -67,7 +67,12 @@ typedef enum priskv_req_command {
     PRISKV_COMMAND_KEYS = 0x05,   /* get keys by regex */
     /* get the number of keys by regex, priskv_keys_resp::valuelen indicates it. */
     PRISKV_COMMAND_NRKEYS = 0x06,
-    PRISKV_COMMAND_FLUSH = 0x07, /* flush keys by regex */
+    PRISKV_COMMAND_FLUSH = 0x07,         /* flush keys by regex */
+    PRISKV_COMMAND_PIN = 0x08,           /* pin keys to prevent LRU eviction */
+    PRISKV_COMMAND_UNPIN = 0x09,         /* unpin keys using token */
+    PRISKV_COMMAND_GET_AND_PIN = 0x0A,   /* get value and pin the key in one operation */
+    PRISKV_COMMAND_SET_AND_PIN = 0x0B,   /* set value and pin the key in one operation */
+    PRISKV_COMMAND_GET_AND_UNPIN = 0x0C, /* get value and unpin the key in one operation */
 
     PRISKV_COMMAND_MAX /* not a part of protocol, keep last */
 } priskv_req_command;
@@ -95,6 +100,7 @@ typedef struct priskv_request {
     uint8_t reserved[4];
     uint16_t nsgl; /* how many SGL contains following */
     uint16_t key_length;
+    uint64_t token; /* token for unpin */
     priskv_request_runtime runtime;
     priskv_keyed_sgl sgls[0];
 } priskv_request;
@@ -127,6 +133,7 @@ typedef enum priskv_resp_status {
 typedef struct priskv_response {
     uint64_t request_id;
     uint64_t timeout; /* in ms */
+    uint64_t pin_token; /* the token of operation */
     uint32_t length;  /* the length of value */
     uint16_t status;  /* priskv_resp_status */
     uint8_t reserved[10];

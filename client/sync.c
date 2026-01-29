@@ -37,18 +37,22 @@
 typedef struct priskv_rdma_req_sync {
     priskv_status status;
     uint32_t valuelen;
+    uint64_t pin_token;
     bool done;
 } priskv_rdma_req_sync;
 
-static void priskv_common_sync_cb(uint64_t request_id, priskv_status status, void *result)
+static void priskv_common_sync_cb(uint64_t request_id, priskv_status status, void *result,
+                                  void *result_token)
 {
     priskv_rdma_req_sync *rdma_req_sync = (priskv_rdma_req_sync *)request_id;
     uint32_t valuelen = result ? *(uint32_t *)result : 0;
+    uint64_t token = result_token ? *(uint64_t *)result_token : 0;
 
     priskv_log_debug("RDMA: callback request_id 0x%lx, status: %s[0x%x], length %d\n", request_id,
                    priskv_resp_status_str(status), status, valuelen);
     rdma_req_sync->status = status;
     rdma_req_sync->valuelen = valuelen;
+    rdma_req_sync->pin_token = token;
     rdma_req_sync->done = true;
 }
 
@@ -66,6 +70,33 @@ int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t
     priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
 
     priskv_get_async(client, key, sgl, nsgl, (uint64_t)&rdma_req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &rdma_req_sync.done);
+    *valuelen = rdma_req_sync.valuelen;
+
+    return rdma_req_sync.status;
+}
+
+int priskv_get_and_pin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                       uint64_t *pin_token, uint32_t *valuelen)
+{
+    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+
+    priskv_get_and_pin_async(client, key, sgl, nsgl, *pin_token, (uint64_t)&rdma_req_sync,
+                             priskv_common_sync_cb);
+    priskv_sync_wait(client, &rdma_req_sync.done);
+    *valuelen = rdma_req_sync.valuelen;
+    *pin_token = rdma_req_sync.pin_token;
+
+    return rdma_req_sync.status;
+}
+
+int priskv_get_and_unpin(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+                         uint64_t pin_token, uint32_t *valuelen)
+{
+    priskv_rdma_req_sync rdma_req_sync = {.status = 0xffff, .done = false};
+
+    priskv_get_and_unpin_async(client, key, sgl, nsgl, pin_token, (uint64_t)&rdma_req_sync,
+                               priskv_common_sync_cb);
     priskv_sync_wait(client, &rdma_req_sync.done);
     *valuelen = rdma_req_sync.valuelen;
 

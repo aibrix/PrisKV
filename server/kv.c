@@ -61,6 +61,11 @@ typedef struct priskv_hash_head {
     pthread_spinlock_t lock;
 } priskv_hash_head;
 
+typedef struct priskv_pin_head {
+    struct list_head head;
+    pthread_spinlock_t lock;
+} priskv_pin_head;
+
 /**
  * when a request try lock fails, it is added to the pending queue corresponding to its crc hash
  * value. once the lock holder completes, the request can be re-initiated.
@@ -81,10 +86,12 @@ typedef struct priskv_expire_routine_statics {
 typedef struct priskv_kv {
     priskv_hash_head *hash_heads;
     priskv_tiering_wait_head *tiering_wait_heads;
+    priskv_pin_head *pin_head;
 
     // lru head
     struct list_head lru_head;
     pthread_spinlock_t lru_lock;
+    pthread_spinlock_t token_lock;
 
     uint32_t bucket_count;
     uint32_t max_keys;
@@ -96,6 +103,7 @@ typedef struct priskv_kv {
     uint8_t *value_base;              /* buddy memory base address */
     uint32_t expire_routine_interval; /* interval to run expire routine */
     priskv_expire_routine_statics expire_routine_statics;
+    uint64_t next_token;
 } priskv_kv;
 
 static void priskv_lru_access(priskv_key *keynode, bool is_in_list)
@@ -206,6 +214,13 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
     kv->value_buddy = priskv_buddy_create(value_base, value_blocks, value_block_size);
     assert(kv->value_base == priskv_buddy_base(kv->value_buddy));
 
+    /* step 6: init next token for pin/unpin operation */
+    kv->next_token = 1;
+    pthread_spin_init(&kv->token_lock, 0);
+    kv->pin_head = priskv_mem_malloc(sizeof(priskv_pin_head), true);
+    list_head_init(&kv->pin_head->head);
+    pthread_spin_init(&kv->pin_head->lock, 0);
+
     priskv_log_notice("KV: max_key %d, max_key_length %d, value_block_size %d, value_blocks %ld\n",
                     max_keys, max_key_length, value_block_size, value_blocks);
 
@@ -221,6 +236,7 @@ void priskv_destroy_kv(void *_kv)
     priskv_mem_free(kv->hash_heads, kv->bucket_count * sizeof(priskv_hash_head), true);
     // TODO: free pending requests
     priskv_mem_free(kv->tiering_wait_heads, kv->bucket_count * sizeof(priskv_tiering_wait_head), true);
+    priskv_mem_free(kv->pin_head, sizeof(priskv_pin_head), true);
     free(kv);
 }
 
@@ -389,6 +405,130 @@ int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint
     priskv_lru_access(keynode, true);
 
     return PRISKV_RESP_STATUS_OK;
+}
+
+uint64_t priskv_next_token(void *_kv)
+{
+    priskv_kv *kv = _kv;
+    pthread_spin_lock(&kv->lru_lock);
+    uint64_t ret = kv->next_token;
+    kv->next_token++;
+    pthread_spin_unlock(&kv->lru_lock);
+    return ret;
+}
+
+priskv_pin_operator *priskv_create_pin_op(void *_kv, uint64_t token)
+{
+    // assert held pin_operator_list lock
+    priskv_kv *kv = _kv;
+    priskv_pin_operator *pin_op = calloc(1, sizeof(priskv_pin_operator));
+    list_head_init(&pin_op->pin_keys_head);
+    list_node_init(&pin_op->entry);
+    pthread_spin_init(&pin_op->lock, 0);
+    pin_op->token = token;
+    list_add_tail(&kv->pin_head->head, &pin_op->entry);
+
+    // for debug
+    priskv_pin_operator *pin_op_it = NULL;
+
+    return pin_op;
+}
+
+priskv_pin_operator *priskv_find_pin_op(void *_kv, uint64_t token, bool create)
+{
+    priskv_kv *kv = _kv;
+    priskv_pin_operator *pin_op = NULL;
+    priskv_pin_operator *pin_op_it;
+    // pin_operator_list lock
+    pthread_spin_lock(&kv->pin_head->lock);
+    list_for_each (&kv->pin_head->head, pin_op_it, entry) {
+        if (pin_op_it->token == token) {
+            pin_op = pin_op_it;
+            break;
+        }
+    }
+    if (pin_op == NULL) {
+        if (create) {
+            priskv_log_debug("priskv_pin_get recv new token: %d\n", token);
+            pin_op = priskv_create_pin_op(_kv, token);
+        }
+    } else {
+        priskv_log_debug("priskv_pin_get use exist pin operator token: %d\n", token);
+    }
+    // pin_operator_list unlock
+    pthread_spin_unlock(&kv->pin_head->lock);
+    return pin_op;
+}
+
+void priskv_pin_key(void *_kv, uint64_t token, void *arg)
+{
+    priskv_kv *kv = _kv;
+    priskv_key *keynode = arg;
+    if (!keynode) {
+        return;
+    }
+    priskv_log_debug("PIN:priskv_pin_key start: %d\n", token);
+    priskv_pin_operator *pin_op = priskv_find_pin_op(_kv, token, true /* create */);
+    assert(pin_op);
+
+    pthread_spin_lock(&pin_op->lock);
+    priskv_pin_keynode *pin_keynode = calloc(1, sizeof(priskv_pin_keynode));
+    list_node_init(&pin_keynode->entry);
+    pin_keynode->key_ptr = keynode;
+
+    list_add_tail(&pin_op->pin_keys_head, &pin_keynode->entry);
+
+    pthread_spin_unlock(&pin_op->lock);
+
+    priskv_keynode_ref(keynode);
+    priskv_log_debug("PIN:priskv_pin_key success: %d\n", token);
+}
+
+priskv_pin_keynode *priskv_find_pin_keynode(priskv_pin_operator *pin_op, void *arg, bool del)
+{
+    pthread_spin_lock(&pin_op->lock);
+    priskv_pin_keynode *pin_keynode = NULL;
+    priskv_pin_keynode *ret = NULL;
+    list_for_each (&pin_op->pin_keys_head, pin_keynode, entry) {
+        if (pin_keynode->key_ptr == arg) {
+            ret = pin_keynode;
+            break;
+        }
+    }
+    if (del && ret) {
+        list_del(ret);
+    }
+    pthread_spin_unlock(&pin_op->lock);
+    return ret;
+}
+
+void priskv_unpin_key(void *_kv, uint64_t token, void *arg)
+{
+    priskv_kv *kv = _kv;
+    priskv_key *keynode = arg;
+    if (!keynode) {
+        return;
+    }
+    // find pin_op by token
+    priskv_pin_operator *pin_op = priskv_find_pin_op(_kv, token, false /* create */);
+    if (pin_op == NULL) {
+        priskv_log_debug("UNPIN:priskv_unpin_key failed: %d pin operator not exist\n", token);
+        return;
+    }
+
+    // find pin_keynode by keynode ptr
+    priskv_pin_keynode *pin_keynode = priskv_find_pin_keynode(pin_op, arg, true /* del */);
+    if (!pin_keynode) {
+        priskv_log_debug("UNPIN:priskv_unpin_key failed: %d pin keynode not exist\n", token);
+        return;
+    }
+
+    // free pin_keynode
+    free(pin_keynode);
+    // TODO(wangyi) free pon_op
+    priskv_log_debug("UNPIN:priskv_unpin_key success token: %d\n", token);
+
+    priskv_keynode_deref(keynode);
 }
 
 void priskv_get_key_end(void *arg)

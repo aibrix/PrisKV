@@ -99,12 +99,42 @@ class PriskvClient:
         mset_status = [0] * len(keys)
         status = client.mset(self.conn, keys, sgls, timeout, mset_status)
         return (status, mset_status)
+    
+    def mset_and_pin(
+            self,
+            keys: List[str],
+            sgls: List[client.SGL],
+            timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
+    ) -> Tuple[int, List[int], int]:
+        mset_status = [0] * len(keys)
+        status, token = client.mset_and_pin(self.conn, keys, sgls, timeout, mset_status)
+        return (status, mset_status, token)
+
 
     def mget(self, keys: List[str], sgls: List[client.SGL],
              value_lens: List[int]) -> Tuple[int, List[int]]:
         mget_status = [0] * len(keys)
         status = client.mget(self.conn, keys, sgls, value_lens, mget_status)
         return (status, mget_status)
+    
+    def mget_and_pin(self, keys: List[str], sgls: List[client.SGL],
+            value_lens: List[int]) -> Tuple[int, List[int], int]:
+        mget_status = [0] * len(keys)
+        status, token = client.mget_and_pin(self.conn, keys, sgls, value_lens, mget_status)
+        return (status, mget_status, token)
+    
+    def mget_and_unpin(self, keys: List[str], sgls: List[client.SGL],
+            value_lens: List[int], token : int) -> Tuple[int, List[int], int]:
+        mget_status = [0] * len(keys)
+        status = client.mget_and_pin(self.conn, keys, sgls, value_lens, mget_status, token)
+        return (status, mget_status)
+
+    def mset_and_pin(self, keys: List[str], sgls: List[client.SGL],
+            
+            ) -> Tuple[int, List[int], int]:
+        mget_status = [0] * len(keys)
+        status, token = client.mset_and_pin(self.conn, keys, sgls, value_lens, mget_status)
+        return (status, mget_status, token)
 
     def mexists(self, keys: List[str]) -> Tuple[int, List[int]]:
         mexist_status = [0] * len(keys)

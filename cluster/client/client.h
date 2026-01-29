@@ -162,6 +162,15 @@ int priskvClusterAsyncTest(priskvClusterClient *client, const char *key, priskvC
                          void *cbarg);
 int priskvClusterAsyncDelete(priskvClusterClient *client, const char *key, priskvClusterCallback cb,
                            void *cbarg);
+int priskvClusterAsyncGetAndPin(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
+                                uint16_t nsgl, uint64_t *pin_token, priskvClusterCallback cb,
+                                void *cbarg);
+int priskvClusterAsyncGetAndUnPin(priskvClusterClient *client, const char *key,
+                                  priskvClusterSGL *sgl, uint16_t nsgl, uint64_t *pin_token,
+                                  priskvClusterCallback cb, void *cbarg);
+int priskvClusterAsyncSetAndPin(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
+                                uint16_t nsgl, uint64_t timeout, uint64_t *pin_token,
+                                priskvClusterCallback cb, void *cbarg);
 
 /* sync APIs */
 priskvClusterStatus priskvClusterGet(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
@@ -173,3 +182,10 @@ priskvClusterStatus priskvClusterDelete(priskvClusterClient *client, const char 
 priskvClusterStatus priskvClusterKeys(priskvClusterClient *client, const char *regex,
                                   priskv_keyset **keyset);
 priskvClusterStatus priskvClusterStatusFromPRISKVStatus(priskv_status status);
+
+int priskvClusterGetAndPin(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
+                           uint16_t nsgl, uint32_t *value_len, uint64_t *pin_token);
+int priskvClusterGetAndUnPin(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
+                             uint16_t nsgl, uint32_t *value_len, uint64_t *pin_token);
+int priskvClusterSetAndPin(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
+                           uint16_t nsgl, uint64_t timeout, uint64_t *pin_token);

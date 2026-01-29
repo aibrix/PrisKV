@@ -45,12 +45,24 @@ typedef struct priskv_key {
     pthread_spinlock_t lock;
     uint32_t refcnt;
     bool inprocess;
-    bool reserved[3];
+    bool reserved[2];
     uint16_t keylen;
     uint32_t valuelen;
     uint64_t value_off; /* offset from value blocks. [0, blocks * block size) */
     uint8_t key[0];     /* pointer to a slab element */
 } priskv_key;
+
+typedef struct priskv_pin_keynode {
+    struct list_node entry;
+    priskv_key *key_ptr;
+} priskv_pin_keynode;
+
+typedef struct priskv_pin_operator {
+    struct list_node entry;
+    struct list_head pin_keys_head;
+    uint64_t token;
+    pthread_spinlock_t lock;
+} priskv_pin_operator;
 
 #define PRISKV_MEM_MAGIC ('H' << 24 | 'P' << 16 | 'K' << 8 | 'V')
 #define PRISKV_MEM_ALIGN_UP 4096

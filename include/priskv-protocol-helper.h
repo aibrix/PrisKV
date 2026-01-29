@@ -55,8 +55,8 @@ static inline uint8_t *priskv_request_key(priskv_request *req, uint16_t nsgl)
 
 static inline const char *priskv_command_str(priskv_req_command cmd)
 {
-    static const char *cmd_str[] = {"GET",    "SET",  "TEST",   "DELETE",
-                                    "EXPIRE", "KEYS", "NRKEYS", "FLUSH"};
+    static const char *cmd_str[] = {"GET",   "SET", "TEST",  "DELETE", "EXPIRE", "KEYS", "NRKEYS",
+                                    "FLUSH", "PIN", "UNPIN", "PGET",   "UGET",   "PSET"};
 
     if (cmd >= PRISKV_COMMAND_MAX) {
         return "unknown";
