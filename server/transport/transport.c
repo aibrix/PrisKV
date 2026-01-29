@@ -121,13 +121,13 @@ void priskv_transport_free_listeners(priskv_transport_listener *listeners, int n
 }
 
 int priskv_transport_send_response(priskv_transport_conn *conn, uint64_t request_id,
-                                   priskv_resp_status status, uint32_t length)
+                                   priskv_resp_status status, uint32_t length, uint64_t addr_offset)
 {
     if (!g_transport_driver) {
         priskv_log_error("Transport driver is NULL\n");
         return -1;
     }
-    return g_transport_driver->send_response(conn, request_id, status, length);
+    return g_transport_driver->send_response(conn, request_id, status, length, addr_offset);
 }
 
 int priskv_transport_rw_req(priskv_transport_conn *conn, priskv_request *req,
@@ -208,6 +208,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
     uint16_t command = be16toh(req->command);
     uint16_t nsgl = be16toh(req->nsgl);
     uint64_t timeout = be64toh(req->timeout);
+    uint32_t alloc_length = be32toh(req->alloc_length);
     uint8_t *key;
     uint16_t keylen;
     uint16_t keyoff = g_transport_driver->request_key_off(req);
@@ -225,7 +226,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
     if (len < keyoff) {
         priskv_log_warn("Transport: <%s - %s> invalid command. recv %d, less than %d, nsgl 0x%x\n",
                         conn->local_addr, conn->peer_addr, len, keyoff, nsgl);
-        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_COMMAND, 0);
+        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_COMMAND, 0, 0);
         return -EPROTO;
     }
 
@@ -234,21 +235,21 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         priskv_log_warn("Transport: <%s - %s> empty key. recv %d, less than %d, nsgl 0x%x\n",
                         conn->local_addr, conn->peer_addr, len, keyoff, nsgl);
 
-        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_EMPTY, 0);
+        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_EMPTY, 0, 0);
         return -EPROTO;
     }
 
     if (keylen > conn->conn_cap.max_key_length) {
         priskv_log_warn("Transport: <%s - %s> invalid key. key(%d) exceeds max_key_length(%d)\n",
                         conn->local_addr, conn->peer_addr, keylen, conn->conn_cap.max_key_length);
-        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_TOO_BIG, 0);
+        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_TOO_BIG, 0, 0);
         return -EPROTO;
     }
 
     if (nsgl > conn->conn_cap.max_sgl) {
         priskv_log_warn("Transport: <%s - %s> invalid nsgl. nsgl(%d) exceeds max_sgl(%d)\n",
                         conn->local_addr, conn->peer_addr, nsgl, conn->conn_cap.max_sgl);
-        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_SGL, 0);
+        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_SGL, 0, 0);
         return -EPROTO;
     }
 
@@ -269,7 +270,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_get_key(conn->kv, key, keylen, &val, &valuelen, &keynode);
             if (status != PRISKV_RESP_STATUS_OK || !keynode) {
-                ret = driver->send_response(conn, req->request_id, status, 0);
+                ret = driver->send_response(conn, req->request_id, status, 0, 0);
                 priskv_get_key_end(keynode);
                 break;
             }
@@ -279,7 +280,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
 
             if (remote_valuelen < valuelen) {
                 ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_TOO_BIG,
-                                            valuelen);
+                                            valuelen, 0);
                 priskv_get_key_end(keynode);
                 break;
             }
@@ -297,7 +298,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                 priskv_tiering_req_new(conn, req, key, keylen, PRISKV_KEY_MAX_TIMEOUT,
                                        PRISKV_COMMAND_GET, remote_valuelen, &alloc_status);
             if (!treq) {
-                ret = driver->send_response(conn, req->request_id, alloc_status, 0);
+                ret = driver->send_response(conn, req->request_id, alloc_status, 0, 0);
                 break;
             }
 
@@ -311,7 +312,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
 
         remote_valuelen = priskv_sgl_size_from_be(req->sgls, nsgl);
         if (!remote_valuelen) {
-            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_EMPTY, 0);
+            ret =
+                driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_VALUE_EMPTY, 0, 0);
             break;
         }
 
@@ -319,7 +321,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             status =
                 priskv_set_key(conn->kv, key, keylen, &val, remote_valuelen, timeout, &keynode);
             if (status != PRISKV_RESP_STATUS_OK || !keynode) {
-                ret = driver->send_response(conn, req->request_id, status, 0);
+                ret = driver->send_response(conn, req->request_id, status, 0, 0);
                 priskv_set_key_end(keynode);
                 break;
             }
@@ -340,7 +342,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                 priskv_tiering_req_new(conn, req, key, keylen, timeout, PRISKV_COMMAND_SET,
                                        remote_valuelen, &alloc_status);
             if (!treq) {
-                ret = driver->send_response(conn, req->request_id, alloc_status, 0);
+                ret = driver->send_response(conn, req->request_id, alloc_status, 0, 0);
                 break;
             }
 
@@ -353,7 +355,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
     case PRISKV_COMMAND_TEST: {
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_get_key(conn->kv, key, keylen, &val, &valuelen, &keynode);
-            ret = driver->send_response(conn, req->request_id, status, valuelen);
+            ret = driver->send_response(conn, req->request_id, status, valuelen, 0);
             priskv_get_key_end(keynode);
             break;
         }
@@ -362,7 +364,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         priskv_tiering_req *treq = priskv_tiering_req_new(conn, req, key, keylen, timeout,
                                                           PRISKV_COMMAND_TEST, 0, &alloc_status);
         if (!treq) {
-            ret = driver->send_response(conn, req->request_id, alloc_status, 0);
+            ret = driver->send_response(conn, req->request_id, alloc_status, 0, 0);
             break;
         }
 
@@ -374,7 +376,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
     case PRISKV_COMMAND_DELETE: {
         if (!priskv_backend_tiering_enabled()) {
             status = priskv_delete_key(conn->kv, key, keylen);
-            ret = driver->send_response(conn, req->request_id, status, 0);
+            ret = driver->send_response(conn, req->request_id, status, 0, 0);
             break;
         }
 
@@ -382,7 +384,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         priskv_tiering_req *treq = priskv_tiering_req_new(conn, req, key, keylen, timeout,
                                                           PRISKV_COMMAND_DELETE, 0, &alloc_status);
         if (!treq) {
-            ret = driver->send_response(conn, req->request_id, alloc_status, 0);
+            ret = driver->send_response(conn, req->request_id, alloc_status, 0, 0);
             break;
         }
 
@@ -393,20 +395,21 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
 
     case PRISKV_COMMAND_EXPIRE:
         status = priskv_expire_key(conn->kv, key, keylen, timeout);
-        ret = driver->send_response(conn, req->request_id, status, 0);
+        ret = driver->send_response(conn, req->request_id, status, 0, 0);
         break;
 
     case PRISKV_COMMAND_KEYS:
         if (rmem->memh.handle) {
             /* a single KEYS command is allowed inflight with a connection */
-            driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, 0);
+            driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, 0, 0);
             ret = 0;
             break;
         }
 
         remote_valuelen = priskv_sgl_size_from_be(req->sgls, nsgl);
         if (driver->mem_new(conn, rmem, "Keys", remote_valuelen)) {
-            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, valuelen);
+            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_MEM, valuelen,
+                                        0);
             break;
         }
 
@@ -414,7 +417,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             priskv_get_keys(conn->kv, key, keylen, rmem->buf, remote_valuelen, &valuelen, &nkeys);
         if ((status != PRISKV_RESP_STATUS_OK) || !valuelen) {
             driver->mem_free(conn, rmem);
-            ret = driver->send_response(conn, req->request_id, status, valuelen);
+            ret = driver->send_response(conn, req->request_id, status, valuelen, 0);
             break;
         }
 
@@ -422,7 +425,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                              NULL);
         if (ret) {
             driver->mem_free(conn, rmem);
-            ret = driver->send_response(conn, req->request_id, status, valuelen);
+            ret = driver->send_response(conn, req->request_id, status, valuelen, 0);
         }
         break;
 
@@ -430,21 +433,37 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         status = priskv_get_keys(conn->kv, key, keylen, NULL, 0, &valuelen, &nkeys);
         /* PRISKV_RESP_STATUS_VALUE_TOO_BIG is expected */
         if (status == PRISKV_RESP_STATUS_VALUE_TOO_BIG) {
-            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, nkeys);
+            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, nkeys, 0);
             break;
         }
-        ret = driver->send_response(conn, req->request_id, status, 0);
+        ret = driver->send_response(conn, req->request_id, status, 0, 0);
         break;
 
     case PRISKV_COMMAND_FLUSH:
         status = priskv_flush_keys(conn->kv, key, keylen, &nkeys);
-        ret = driver->send_response(conn, req->request_id, status, nkeys);
+        ret = driver->send_response(conn, req->request_id, status, nkeys, 0);
         break;
 
+    case PRISKV_COMMAND_ALLOC:
+        ret = 0;
+        break;
+
+    case PRISKV_COMMAND_SEAL:
+        ret = 0;
+        break;
+
+    case PRISKV_COMMAND_ACQUIRE:
+        ret = 0;
+        break;
+
+    case PRISKV_COMMAND_RELEASE:
+        ret = 0;
+        break;
     default:
         priskv_log_warn("Transport: <%s - %s> unknown command %d\n", conn->local_addr,
                         conn->peer_addr, command);
-        ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_SUCH_COMMAND, 0);
+        ret =
+            driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_NO_SUCH_COMMAND, 0, 0);
     }
 
     if (!tiering_inflight) {
@@ -467,7 +486,7 @@ static int priskv_transport_complete_rw_work(priskv_transport_rw_work *work,
 
     priskv_transport_conn *conn = work->conn;
 
-    int ret = g_transport_driver->send_response(conn, work->request_id, status, length);
+    int ret = g_transport_driver->send_response(conn, work->request_id, status, length, 0);
 
     if (work->memh.handle != conn->value_memh.handle) {
         priskv_transport_mem *rmem = &conn->rmem[PRISKV_TRANSPORT_MEM_KEYS];

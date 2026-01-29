@@ -61,6 +61,7 @@ typedef struct priskv_keys_resp {
     uint16_t keylen;
     uint16_t reserved;
     uint32_t valuelen;
+    uint64_t addr_offset;
 } priskv_keys_resp;
 
 /*
@@ -76,6 +77,11 @@ typedef enum priskv_req_command {
     /* get the number of keys by regex, priskv_keys_resp::valuelen indicates it. */
     PRISKV_COMMAND_NRKEYS = 0x06,
     PRISKV_COMMAND_FLUSH = 0x07, /* flush keys by regex */
+    /* for the zero copy mode */
+    PRISKV_COMMAND_ALLOC = 0x08,   /* alloc memory region if support zero copy */
+    PRISKV_COMMAND_SEAL = 0x09,    /* seal memory region*/
+    PRISKV_COMMAND_ACQUIRE = 0x0a, /* acquire memory region if support zero copy */
+    PRISKV_COMMAND_RELEASE = 0x0b, /* release memory region */
 
     PRISKV_COMMAND_MAX /* not a part of protocol, keep last */
 } priskv_req_command;
@@ -103,6 +109,7 @@ typedef struct priskv_request {
     uint8_t reserved[4];
     uint16_t nsgl; /* how many SGL contains following */
     uint16_t key_length;
+    uint32_t alloc_length;
     priskv_request_runtime runtime;
     priskv_keyed_sgl sgls[0];
 } priskv_request;
@@ -135,6 +142,7 @@ typedef enum priskv_resp_status {
 typedef struct priskv_response {
     uint64_t request_id;
     uint64_t timeout; /* in ms */
+    uint64_t addr_offset; /* the address offset of memory region */
     uint32_t length;  /* the length of value */
     uint16_t status;  /* priskv_resp_status */
     uint8_t reserved[10];

@@ -64,8 +64,9 @@ static inline void priskv_rdma_req_complete(priskv_transport_conn *conn);
 static inline void priskv_rdma_req_reset(priskv_transport_req *rdma_req);
 static inline priskv_transport_req *
 priskv_rdma_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t request_id,
-                    const char *key, uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
-                    uint64_t timeout, priskv_req_command cmd, priskv_generic_cb usercb);
+                    const char *key, uint16_t keylen, uint32_t alloc_length, priskv_sgl *sgl,
+                    uint16_t nsgl, uint64_t timeout, priskv_req_command cmd,
+                    priskv_generic_cb usercb);
 
 static int priskv_rdma_mem_new(priskv_transport_conn *conn, priskv_transport_mem *rmem,
                                const char *name, uint32_t size, bool remote_write)
@@ -1137,8 +1138,9 @@ exit:
 
 static inline priskv_transport_req *
 priskv_rdma_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t request_id,
-                    const char *key, uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
-                    uint64_t timeout, priskv_req_command cmd, priskv_generic_cb usercb)
+                    const char *key, uint16_t keylen, uint32_t alloc_length, priskv_sgl *sgl,
+                    uint16_t nsgl, uint64_t timeout, priskv_req_command cmd,
+                    priskv_generic_cb usercb)
 {
     priskv_transport_req *rdma_req = calloc(1, sizeof(priskv_transport_req));
     if (!rdma_req) {

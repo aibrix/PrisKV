@@ -245,6 +245,22 @@ int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t reque
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
                        priskv_generic_cb cb);
 
+/* Alloc memory for zero copy write*/
+int priskv_alloc_async(priskv_client *client, const char *key, uint16_t alloc_length,
+                       uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
+
+/* Seal memory region */
+int priskv_seal_async(priskv_client *client, const char *key, uint64_t request_id,
+                      priskv_generic_cb cb);
+
+/* Acquire memory region for zero copy read */
+int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
+                         uint64_t request_id, priskv_generic_cb cb);
+
+/* Release memory region */
+int priskv_release_async(priskv_client *client, const char *key, uint64_t request_id,
+                         priskv_generic_cb cb);
+
 /* for *KEYS* command */
 typedef struct priskv_key {
     char *key;
@@ -255,6 +271,11 @@ typedef struct priskv_keyset {
     uint32_t nkey;
     priskv_key *keys;
 } priskv_keyset;
+
+typedef struct priskv_memory_region {
+    uint64_t addr_offset;
+    uint32_t length;
+} priskv_memory_region;
 
 /* free keyset returned by @priskv_keys */
 void priskv_keyset_free(priskv_keyset *keyset);
@@ -283,6 +304,14 @@ int priskv_nrkeys(priskv_client *client, const char *regex, uint32_t *nkey);
 int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey);
 
 uint64_t priskv_capacity(priskv_client *client);
+
+int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, uint64_t timeout,
+                 uint64_t *addr_offset);
+int priskv_seal(priskv_client *client, const char *key);
+
+int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout, uint64_t *addr_offset,
+                   uint32_t *valuelen);
+int priskv_release(priskv_client *client, const char *key);
 
 /*
  *assuming max timeout means no timeout

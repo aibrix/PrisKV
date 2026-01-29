@@ -187,7 +187,7 @@ typedef struct priskv_transport_driver {
 
     // req/resp
     int (*send_response)(priskv_transport_conn *conn, uint64_t request_id,
-                         priskv_resp_status status, uint32_t length);
+                         priskv_resp_status status, uint32_t length, uint64_t addr_offset);
     int (*rw_req)(priskv_transport_conn *conn, priskv_request *req, priskv_transport_memh *memh,
                   uint8_t *val, uint32_t valuelen, bool set, void (*cb)(void *), void *cbarg,
                   bool defer_resp, priskv_transport_rw_work **work_out);
@@ -260,10 +260,12 @@ void priskv_transport_free_listeners(priskv_transport_listener *listeners, int n
  * @param request_id The request ID.
  * @param status The response status.
  * @param length The response length.
+ * @param addr_offset The response addr_offset.
  * @return int 0 on success, others on error.
  */
 int priskv_transport_send_response(priskv_transport_conn *conn, uint64_t request_id,
-                                   priskv_resp_status status, uint32_t length);
+                                   priskv_resp_status status, uint32_t length,
+                                   uint64_t addr_offset);
 
 /**
  * @brief Submit a read or write request to the transport driver.
