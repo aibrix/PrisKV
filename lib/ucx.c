@@ -295,7 +295,7 @@ static void priskv_ucx_request_complete(priskv_ucx_request *request, ucs_status_
 
 cb:
     if (request->cb != NULL) {
-        priskv_log_debug("priskv_ucx_request_complete: call cb %p\n", request->cb);
+        priskv_log_debug("priskv_ucx_request_complete: call cb %p info %p\n", request->cb, info);
         if (info == NULL) {
             request->cb(status, request->cb_data);
         } else {

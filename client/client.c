@@ -149,7 +149,7 @@ static void help_handler(client_context *ctx, char *args)
     print_cmd_help();
 }
 
-static void set_handler(client_context *ctx, char *args)
+static void set_handler_base(client_context *ctx, char *args, bool alloc)
 {
     char *key, *value, *opt, *opt_val, *str_end;
     uint64_t expire_time_ms = 0;
@@ -206,22 +206,50 @@ static void set_handler(client_context *ctx, char *args)
 
     valuelen = strlen(value) + 1;
 
-    memcpy(ctx->buf, value, valuelen);
+    if (alloc) {
+        uint64_t addr;
+        status = priskv_alloc(ctx->client, key, valuelen, expire_time_ms, &addr);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to ALLOC, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("ALLOC_SET status(%d): %s, addr %0x\n", status, priskv_status_str(status), addr);
+        memcpy(addr, value, valuelen);
+        status = priskv_seal(ctx->client, key);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to SEAL, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("ALLOC_SET status(%d): %s\n", status, priskv_status_str(status));
+    } else {
+        memcpy(ctx->buf, value, valuelen);
 
-    sgl.iova = (uint64_t)ctx->buf;
-    sgl.length = (uint32_t)valuelen;
-    sgl.mem = ctx->priskvmem;
+        sgl.iova = (uint64_t)ctx->buf;
+        sgl.length = (uint32_t)valuelen;
+        sgl.mem = ctx->priskvmem;
 
-    printf("SET key=%s, value[%ld]=%s, expire_time_ms=%lu\n", key, valuelen, value, expire_time_ms);
-    status = priskv_set(ctx->client, key, &sgl, 1, expire_time_ms);
-    if (status != PRISKV_STATUS_OK) {
-        printf("Failed to SET, status(%d): %s\n", status, priskv_status_str(status));
-        return;
+        printf("SET key=%s, value[%ld]=%s, expire_time_ms=%lu\n", key, valuelen, value,
+               expire_time_ms);
+        status = priskv_set(ctx->client, key, &sgl, 1, expire_time_ms);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to SET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("SET status(%d): %s\n", status, priskv_status_str(status));
     }
-    printf("SET status(%d): %s\n", status, priskv_status_str(status));
 }
 
-static void get_handler(client_context *ctx, char *args)
+static void set_handler(client_context *ctx, char *args)
+{
+    set_handler_base(ctx, args, false);
+}
+
+static void alloc_set_handler(client_context *ctx, char *args)
+{
+    set_handler_base(ctx, args, true);
+}
+
+static void get_handler_base(client_context *ctx, char *args, bool acquire)
 {
     char *key;
     uint32_t valuelen;
@@ -236,20 +264,50 @@ static void get_handler(client_context *ctx, char *args)
 
     memset(ctx->buf, 0x00, VALUE_MAX_LEN);
 
-    sgl.iova = (uint64_t)ctx->buf;
-    sgl.length = VALUE_MAX_LEN;
-    sgl.mem = ctx->priskvmem;
+    if (acquire) {
+        uint64_t addr = 0;
+        uint32_t value_len = 0;
+        printf("ACQUIRE key=%s\n", key);
+        status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, &addr, &value_len);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        memcpy(ctx->buf, addr, value_len);
+        printf("ACQUIRE GET status(%d): %s\n", status, priskv_status_str(status));
+        printf("ACQUIRE GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
 
-    printf("GET key=%s\n", key);
-    status = priskv_get(ctx->client, key, &sgl, 1, &valuelen);
-    if (status != PRISKV_STATUS_OK) {
-        printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
-        return;
+        status = priskv_release(ctx->client, key);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to RELEASE, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+    } else {
+        sgl.iova = (uint64_t)ctx->buf;
+        sgl.length = VALUE_MAX_LEN;
+        sgl.mem = ctx->priskvmem;
+
+        printf("GET key=%s\n", key);
+        status = priskv_get(ctx->client, key, &sgl, 1, &valuelen);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+
+        ((char *)ctx->buf)[valuelen] = '\0';
+        printf("GET status(%d): %s\n", status, priskv_status_str(status));
+        printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
     }
+}
 
-    ((char *)ctx->buf)[valuelen] = '\0';
-    printf("GET status(%d): %s\n", status, priskv_status_str(status));
-    printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
+static void get_handler(client_context *ctx, char *args)
+{
+    get_handler_base(ctx, args, false /* acquire */);
+}
+
+static void acquire_get_handler(client_context *ctx, char *args)
+{
+    get_handler_base(ctx, args, true /* acquire */);
 }
 
 static void test_handler(client_context *ctx, char *args)
@@ -418,8 +476,12 @@ static void exit_handler(client_context *ctx, char *args)
 
 static priskv_command commands[] = {
     {"help", help_handler, "help\t\t\t\t\t\tprint this help\n"},
-    {"set", set_handler, "set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
+    {"set", set_handler,
+     "set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
+    {"alloc_set", alloc_set_handler,
+     "alloc set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
     {"get", get_handler, "get KEY\t\t\t\t\t\tget key:value from priskv\n"},
+    {"acquire_get", acquire_get_handler, "acquire get KEY\t\t\t\t\t\tget key:value from priskv\n"},
     {"test", test_handler, "test KEY\t\t\t\t\t\ttest if the key exists in priskv\n"},
     {"delete", delete_handler, "delete KEY\t\t\t\t\t\tdelete the key from priskv\n"},
     {"expire", expire_handler, "expire KEY seconds\t\t\t\t\tset expire time for key\n"},

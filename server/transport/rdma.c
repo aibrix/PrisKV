@@ -447,7 +447,8 @@ static priskv_response *priskv_rdma_unused_response(priskv_transport_conn *conn)
 }
 
 static int priskv_rdma_send_response(priskv_transport_conn *conn, uint64_t request_id,
-                                     priskv_resp_status status, uint32_t length)
+                                     priskv_resp_status status, uint32_t length,
+                                     uint64_t addr_offset)
 {
     priskv_transport_mem *rmem = &conn->rmem[PRISKV_TRANSPORT_MEM_RESP];
     struct ibv_send_wr wr = {0}, *bad_wr;

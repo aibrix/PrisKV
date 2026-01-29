@@ -51,7 +51,7 @@ typedef struct priskvClusterMemoryCtx priskvClusterMemoryCtx;
 typedef struct priskvClusterRequest priskvClusterRequest;
 
 struct list_head retry_req_list = LIST_HEAD_INIT(retry_req_list);
-typedef enum { GET, SET, TEST, DELETE } RequestType;
+typedef enum { GET, SET, TEST, DELETE, ALLOC, SEAL, ACQUIRE, RELEASE } RequestType;
 
 struct priskvClusterMetaServer {
     char *addr;
@@ -101,11 +101,13 @@ struct priskvClusterRequest {
     priskv_sgl *sgl; /* 集群通信sgl, 存放通信内存块具体偏移地址 */
     uint16_t nsgl;
     priskvClusterCallback cb;
+    priskvClusterZeroCopyCallback zero_copy_cb;
     void *cbarg;
     RequestType type;
     const char *key;
     priskvClusterSGL *cluster_sgl; /* 集群通信sgl, 存放通信内存块起始地址, 重试用 */
     uint64_t timeout;
+    uint32_t alloc_length;
     priskvClusterNode *node;
     priskvClusterClient *client;
     struct list_node entry;
@@ -373,21 +375,24 @@ static inline priskvClusterNode *priskvClusterGetNode(priskvClusterClient *clien
     return client->metaData.slots[slot];
 }
 
-static priskvClusterRequest *priskvClusterRequestNew(priskvClusterNode *node, priskvClusterSGL *sgl,
-                                                 uint16_t nsgl, priskvClusterCallback cb, void *cbarg,
-                                                 RequestType type, const char *key,
-                                                 uint64_t timeout, priskvClusterClient *client)
+static priskvClusterRequest *
+priskvClusterRequestNewBase(priskvClusterNode *node, priskvClusterSGL *sgl, uint16_t nsgl,
+                            priskvClusterCallback cb, priskvClusterZeroCopyCallback zero_copy_cb,
+                            void *cbarg, RequestType type, const char *key, uint64_t timeout,
+                            uint32_t alloc_length, priskvClusterClient *client)
 {
     priskvClusterRequest *req = malloc(sizeof(priskvClusterRequest));
 
     req->sgl = malloc(sizeof(priskv_sgl) * nsgl);
     req->nsgl = nsgl;
     req->cb = cb;
+    req->zero_copy_cb = zero_copy_cb;
     req->cbarg = cbarg;
     req->type = type;
     req->key = key;
     req->cluster_sgl = malloc(sizeof(priskvClusterSGL) * nsgl);
     req->timeout = timeout;
+    req->alloc_length = alloc_length;
     req->node = node;
     req->client = client;
 
@@ -404,6 +409,23 @@ static priskvClusterRequest *priskvClusterRequestNew(priskvClusterNode *node, pr
     }
 
     return req;
+}
+
+static priskvClusterRequest *priskvClusterRequestNew(priskvClusterNode *node, priskvClusterSGL *sgl,
+                                                     uint16_t nsgl, priskvClusterCallback cb,
+                                                     void *cbarg, RequestType type, const char *key,
+                                                     uint64_t timeout, priskvClusterClient *client)
+{
+    return priskvClusterRequestNewBase(node, sgl, nsgl, cb, NULL, cbarg, type, key, timeout, 0,
+                                       client);
+}
+
+static priskvClusterRequest *priskvClusterZeroCopyRequestNew(
+    priskvClusterNode *node, priskvClusterZeroCopyCallback cb, void *cbarg, RequestType type,
+    const char *key, uint32_t alloc_length, uint64_t timeout, priskvClusterClient *client)
+{
+    return priskvClusterRequestNewBase(node, NULL, 0, NULL, cb, cbarg, type, key, timeout,
+                                       alloc_length, client);
 }
 
 static void priskvClusterRequestFree(priskvClusterRequest *req)
@@ -444,6 +466,35 @@ static void priskvClusterRequestCallback(uint64_t request_id, priskv_status stat
     priskvClusterRequestFree(req);
 }
 
+static void priskvClusterZeroCopyRequestCallback(uint64_t request_id, priskv_status status,
+                                                 void *result)
+{
+    priskvClusterRequest *req = (priskvClusterRequest *)request_id;
+    uint64_t addr = 0;
+    uint32_t value_length = 0;
+
+    if (status == PRISKV_STATUS_OK && result) {
+        addr = result ? ((priskv_memory_region *)result)->addr : 0;
+        value_length = result ? ((priskv_memory_region *)result)->length : 0;
+    }
+
+    priskv_log_debug("PriskvZeroCopyRequestCallback: callback request_id 0x%lx, status: [0x%x], "
+                     "addr: 0x%lx, length %d\n",
+                     request_id, status, addr, value_length);
+
+    if (req->client->metaUpdating == true && status != PRISKV_STATUS_OK) {
+        list_add_tail(&retry_req_list, &req->entry);
+        req->node->refCount -= 1;
+        priskv_log_info("metaData is Updating, need retrying request %s, %d\n", req->key,
+                        req->node->refCount);
+        return;
+    }
+
+    req->zero_copy_cb(priskvClusterStatusFromPRISKVStatus(status), addr, value_length, req->cbarg);
+    req->node->refCount -= 1;
+    priskvClusterRequestFree(req);
+}
+
 priskvClusterRequest *priskvClusterUpdateRequest(priskvClusterRequest *req)
 {
     priskvClusterNode *node = priskvClusterGetNode(req->client, req->key);
@@ -478,6 +529,22 @@ priskvClusterRequest *priskvClusterGetRequest(priskvClusterClient *client, const
     return req;
 }
 
+priskvClusterRequest *priskvClusterGetZeroCopyRequest(priskvClusterClient *client, const char *key,
+                                                      priskvClusterZeroCopyCallback cb, void *cbarg,
+                                                      uint32_t alloc_length, uint64_t timeout,
+                                                      RequestType type)
+{
+    priskvClusterNode *node = priskvClusterGetNode(client, key);
+    if (!node) {
+        cb(PRISKV_CLUSTER_STATUS_NO_SUCH_KEY, 0, 0, cbarg);
+        return NULL;
+    }
+
+    priskvClusterRequest *req =
+        priskvClusterZeroCopyRequestNew(node, cb, cbarg, type, key, alloc_length, timeout, client);
+    return req;
+}
+
 int priskvClusterSubmitRequest(priskvClusterRequest *req)
 {
     if (req->client->metaUpdating == true) {
@@ -499,6 +566,22 @@ int priskvClusterSubmitRequest(priskvClusterRequest *req)
         case DELETE:
             priskv_delete_async(req->node->client, req->key, (uint64_t)req,
                               priskvClusterRequestCallback);
+            break;
+        case ALLOC:
+            priskv_alloc_async(req->node->client, req->key, req->alloc_length, req->timeout,
+                               (uint64_t)req, priskvClusterZeroCopyRequestCallback);
+            break;
+        case SEAL:
+            priskv_seal_async(req->node->client, req->key, (uint64_t)req,
+                              priskvClusterRequestCallback);
+            break;
+        case ACQUIRE:
+            priskv_acquire_async(req->node->client, req->key, req->timeout, (uint64_t)req,
+                                 priskvClusterZeroCopyRequestCallback);
+            break;
+        case RELEASE:
+            priskv_release_async(req->node->client, req->key, (uint64_t)req,
+                                 priskvClusterRequestCallback);
             break;
         }
     }
@@ -770,6 +853,49 @@ int priskvClusterAsyncDelete(priskvClusterClient *client, const char *key, prisk
     return priskvClusterSubmitRequest(req);
 }
 
+int priskvClusterAsyncAlloc(priskvClusterClient *client, const char *key, uint64_t alloc_length,
+                            uint64_t timeout, priskvClusterZeroCopyCallback cb, void *cbarg)
+{
+    priskvClusterRequest *req =
+        priskvClusterGetZeroCopyRequest(client, key, cb, cbarg, alloc_length, timeout, ALLOC);
+    if (req == NULL)
+        return -1;
+
+    return priskvClusterSubmitRequest(req);
+}
+
+int priskvClusterAsyncSeal(priskvClusterClient *client, const char *key, priskvClusterCallback cb,
+                           void *cbarg)
+{
+    priskvClusterRequest *req = priskvClusterGetRequest(client, key, NULL, 0, cb, cbarg, 0, SEAL);
+    if (req == NULL)
+        return -1;
+
+    return priskvClusterSubmitRequest(req);
+}
+
+int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, uint64_t timeout,
+                              priskvClusterZeroCopyCallback cb, void *cbarg)
+{
+    priskvClusterRequest *req = priskvClusterGetZeroCopyRequest(
+        client, key, cb, cbarg, 0 /* aloc_length */, timeout, ACQUIRE);
+    if (req == NULL)
+        return -1;
+
+    return priskvClusterSubmitRequest(req);
+}
+
+int priskvClusterAsyncRelease(priskvClusterClient *client, const char *key,
+                              priskvClusterCallback cb, void *cbarg)
+{
+    priskvClusterRequest *req =
+        priskvClusterGetRequest(client, key, NULL, 0, cb, cbarg, 0, RELEASE);
+    if (req == NULL)
+        return -1;
+
+    return priskvClusterSubmitRequest(req);
+}
+
 priskvClusterStatus priskvClusterGet(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
                                  uint16_t nsgl, uint32_t *value_len)
 {
@@ -826,6 +952,57 @@ priskvClusterStatus priskvClusterDelete(priskvClusterClient *client, const char 
     }
 
     priskv_status status = priskv_delete(node->client, key);
+
+    return priskvClusterStatusFromPRISKVStatus(status);
+}
+
+priskvClusterStatus priskvClusterAlloc(priskvClusterClient *client, const char *key,
+                                       uint64_t alloc_length, uint64_t timeout, uint64_t *addr)
+{
+    priskvClusterNode *node = priskvClusterGetNode(client, key);
+    if (!node) {
+        return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
+    }
+
+    priskv_status status = priskv_alloc(node->client, key, alloc_length, timeout, addr);
+
+    return priskvClusterStatusFromPRISKVStatus(status);
+}
+
+priskvClusterStatus priskvClusterSeal(priskvClusterClient *client, const char *key)
+{
+
+    priskvClusterNode *node = priskvClusterGetNode(client, key);
+    if (!node) {
+        return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
+    }
+
+    priskv_status status = priskv_seal(node->client, key);
+
+    return priskvClusterStatusFromPRISKVStatus(status);
+}
+
+priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char *key,
+                                         uint64_t timeout, uint64_t *addr, uint32_t *valuelen)
+{
+    priskvClusterNode *node = priskvClusterGetNode(client, key);
+    if (!node) {
+        return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
+    }
+
+    priskv_status status = priskv_acquire(node->client, key, timeout, addr, valuelen);
+
+    return priskvClusterStatusFromPRISKVStatus(status);
+}
+
+priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key)
+{
+    priskvClusterNode *node = priskvClusterGetNode(client, key);
+    if (!node) {
+        return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
+    }
+
+    priskv_status status = priskv_release(node->client, key);
 
     return priskvClusterStatusFromPRISKVStatus(status);
 }

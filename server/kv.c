@@ -376,8 +376,20 @@ static void __priskv_del_key(priskv_kv *kv, priskv_key *keynode)
     priskv_keynode_deref(keynode);
 }
 
+int priskv_get_key_for_seal(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                            uint32_t *valuelen, void **_keynode)
+{
+    return priskv_get_key_base(_kv, key, keylen, val, valuelen, _keynode, true /* for_seal */);
+}
+
 int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
-                 void **_keynode)
+                   void **_keynode)
+{
+    return priskv_get_key_base(_kv, key, keylen, val, valuelen, _keynode, false /* for_seal */);
+}
+
+int priskv_get_key_base(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
+                        void **_keynode, bool for_seal)
 {
     priskv_kv *kv = _kv;
     bool expired = false;
@@ -398,7 +410,9 @@ int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint
     *_keynode = keynode;
 
     if (keynode->inprocess) {
-        return PRISKV_RESP_STATUS_KEY_UPDATING;
+        if (!for_seal) {
+            return PRISKV_RESP_STATUS_KEY_UPDATING;
+        }
     }
 
     *val = priskv_value_to_pointer(kv, keynode);
@@ -532,6 +546,12 @@ void priskv_set_key_end(void *arg)
     }
 
     keynode->inprocess = false;
+}
+
+uint64_t priskv_value_addr_offset(void *_kv, uint8_t *val)
+{
+    priskv_kv *kv = _kv;
+    return val - kv->value_base;
 }
 
 int priskv_delete_key(void *_kv, uint8_t *key, uint16_t keylen)

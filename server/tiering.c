@@ -114,7 +114,7 @@ static void priskv_tiering_finish(priskv_tiering_req *treq, priskv_resp_status s
 
     priskv_tiering_req_repost_recv(treq);
 
-    priskv_transport_send_response(treq->conn, treq->request_id, status, length);
+    priskv_transport_send_response(treq->conn, treq->request_id, status, length, 0);
 
     priskv_tiering_req_free(treq);
 }

@@ -105,8 +105,8 @@ static inline void priskv_ucx_to_hex(uint8_t *hex, uint8_t *str, uint32_t str_le
 
 static inline const char *priskv_command_str(priskv_req_command cmd)
 {
-    static const char *cmd_str[] = {"GET",    "SET",  "TEST",   "DELETE",
-                                    "EXPIRE", "KEYS", "NRKEYS", "FLUSH"};
+    static const char *cmd_str[] = {"GET",    "SET",   "TEST",  "DELETE", "EXPIRE",  "KEYS",
+                                    "NRKEYS", "FLUSH", "ALLOC", "SEAL",   "ACQUIRE", "RELEASE"};
 
     if (cmd >= PRISKV_COMMAND_MAX) {
         return "unknown";

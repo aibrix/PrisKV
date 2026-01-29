@@ -28,6 +28,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <vector>
+#include <tuple>
 
 extern "C" {
     #include "../cluster/client/client.h"
@@ -126,6 +127,36 @@ int priskv_get_wrapper(uintptr_t client, std::string key,
     sgl.length = sgl_wrapper->length;
     sgl.mem = (priskvClusterMemory *)sgl_wrapper->mem;
     return priskvClusterGet((priskvClusterClient *)client, key.c_str(), &sgl, nsgl, valuelen);
+}
+
+std::tuple<int, uint64_t> priskv_alloc_wrapper(uintptr_t client, std::string key, uint32_t valuelen,
+                                               uint64_t timeout)
+{
+    uint64_t addr_offset = 0;
+    int ret = priskvClusterAlloc((priskvClusterClient *)client, key.c_str(), valuelen, timeout,
+                                 &addr_offset);
+    return {ret, addr_offset};
+}
+
+int priskv_seal_wrapper(uintptr_t client, std::string key)
+{
+    return priskvClusterSeal((priskvClusterClient *)client, key.c_str());
+}
+
+std::tuple<int, uint64_t, uint32_t> priskv_acquire_wrapper(uintptr_t client, std::string key,
+                                                           uint64_t timeout)
+{
+
+    uint64_t addr_offset = 0;
+    uint32_t value_length = 0;
+    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), timeout,
+                                   &addr_offset, &value_length);
+    return {ret, addr_offset, value_length};
+}
+
+int priskv_release_wrapper(uintptr_t client, std::string key)
+{
+    return priskvClusterRelease((priskvClusterClient *)client, key.c_str());
 }
 
 std::string priskv_getstr_wrapper(uintptr_t client, std::string key)
@@ -261,6 +292,10 @@ PYBIND11_MODULE(_priskv_client, m)
     m.def("reg_memory", &priskv_reg_memory_wrapper, "A function to register memory.");
     m.def("dereg_memory", &priskv_dereg_memory_wrapper, "A function to dereg memory.");
     m.def("set", &priskv_set_wrapper, "A function to set key-val.");
+    m.def("alloc", &priskv_alloc_wrapper, "A function to alloc memory region for val.");
+    m.def("seal", &priskv_seal_wrapper, "A function to seal memory region of val.");
+    m.def("acquire", &priskv_acquire_wrapper, "A function to acquire memory region for read.");
+    m.def("release", &priskv_release_wrapper, "A function to release memory region of read.");
     m.def("setstr", &priskv_setstr_wrapper, "A function to set key-strval.");
     m.def("getstr", &priskv_getstr_wrapper, "A function to get key-strval.");
     m.def("get", &priskv_get_wrapper, "A function to get key-val.");

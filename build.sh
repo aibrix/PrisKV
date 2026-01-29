@@ -8,3 +8,4 @@ cp server/priskv-server output/
 cp client/priskv-benchmark output/
 cp client/priskv-client output/
 cp cluster/client/priskv-cluster-benchmark output/
+

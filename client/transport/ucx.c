@@ -26,6 +26,7 @@
 
 #include <ucs/sys/string.h>
 #include <ucs/sys/sock.h>
+#include <unistd.h>
 
 #include "priskv-protocol.h"
 #include "priskv-protocol-helper.h"
@@ -51,8 +52,9 @@ static inline void priskv_ucx_req_complete(priskv_transport_conn *conn);
 static inline void priskv_ucx_req_free(priskv_transport_req *ucx_req);
 static inline priskv_transport_req *
 priskv_ucx_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t request_id,
-                   const char *key, uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
-                   uint64_t timeout, priskv_req_command cmd, priskv_generic_cb usercb);
+                   const char *key, uint16_t keylen, uint32_t alloc_length, priskv_sgl *sgl,
+                   uint16_t nsgl, uint64_t timeout, priskv_req_command cmd,
+                   priskv_generic_cb usercb);
 static inline void priskv_ucx_req_reset(priskv_transport_req *ucx_req);
 static inline void priskv_ucx_req_done(priskv_transport_conn *conn, priskv_transport_req *ucx_req);
 static int priskv_ucx_recv_resp(priskv_transport_conn *conn, priskv_response *resp);
@@ -314,16 +316,25 @@ static void priskv_ucx_recv_resp_cb(ucs_status_t status, ucp_tag_t sender_tag, s
 
     uint16_t resp_status = be16toh(resp->status);
     uint32_t resp_length = be32toh(resp->length);
+    uint64_t resp_addr_offset = be64toh(resp->addr_offset);
     priskv_transport_req *ucx_req;
 
-    priskv_log_debug("Response request_id 0x%lx, status(%d) %s, length %d\n", request_id,
-                     resp_status, priskv_resp_status_str(resp_status), resp_length);
+    priskv_log_debug("Response request_id 0x%lx, status(%d) %s, length %d addr_offset %0x\n",
+                     request_id, resp_status, priskv_resp_status_str(resp_status), resp_length,
+                     resp_addr_offset);
     ucx_req = (priskv_transport_req *)request_id;
     ucx_req->status = resp_status;
     ucx_req->length = resp_length;
+    ucx_req->memory_region.addr =
+        (uint64_t)(conn->client->shm_addr + getpagesize() + resp_addr_offset);
+    ucx_req->memory_region.length = resp_length;
 
     if (ucx_req->cmd != PRISKV_COMMAND_KEYS) {
-        ucx_req->result = &ucx_req->length;
+        if (ucx_req->cmd == PRISKV_COMMAND_ALLOC || ucx_req->cmd == PRISKV_COMMAND_ACQUIRE) {
+            ucx_req->result = &ucx_req->memory_region;
+        } else {
+            ucx_req->result = &ucx_req->length;
+        }
     }
 
     ucx_req->flags |= PRISKV_TRANSPORT_REQ_FLAG_RECV;
@@ -907,6 +918,7 @@ static int priskv_ucx_mq_init(priskv_client *client, const char *raddr, int rpor
             return -1;
         }
 
+        client->conns[i]->client = client;
         client->conns[i]->id = i;
         client->conns[i]->thread = priskv_threadpool_get_iothread(client->pool, i);
 
@@ -1004,6 +1016,7 @@ static int priskv_ucx_sq_init(priskv_client *client, const char *raddr, int rpor
         priskv_log_error("UCX: failed to connect to %s:%d\n", raddr, rport);
         return -1;
     }
+    client->conns[0]->client = client;
 
     priskv_add_event_fd(client->epollfd, client->conns[0]->epollfd);
     priskv_add_event_fd(client->epollfd, client->conns[0]->connfd);
@@ -1204,8 +1217,9 @@ exit:
 
 static inline priskv_transport_req *
 priskv_ucx_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t request_id,
-                   const char *key, uint16_t keylen, priskv_sgl *sgl, uint16_t nsgl,
-                   uint64_t timeout, priskv_req_command cmd, priskv_generic_cb usercb)
+                   const char *key, uint16_t keylen, uint32_t alloc_length, priskv_sgl *sgl,
+                   uint16_t nsgl, uint64_t timeout, priskv_req_command cmd,
+                   priskv_generic_cb usercb)
 {
     priskv_transport_req *ucx_req = calloc(1, sizeof(priskv_transport_req));
     if (!ucx_req) {
@@ -1219,6 +1233,7 @@ priskv_ucx_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t 
     ucx_req->timeout = timeout;
     ucx_req->key = strdup(key);
     ucx_req->keylen = keylen;
+    ucx_req->alloc_length = alloc_length;
     ucx_req->request_id = request_id;
     ucx_req->usercb = usercb;
     ucx_req->cb = priskv_ucx_req_cb;
@@ -1341,6 +1356,7 @@ static int priskv_ucx_send_req(void *arg)
     req->nsgl = htobe16(ucx_req->nsgl);
     req->timeout = htobe64(ucx_req->timeout);
     req->key_length = htobe16(ucx_req->keylen);
+    req->alloc_length = htobe32(ucx_req->alloc_length);
 
     struct timeval client_metadata_send_time;
     gettimeofday(&client_metadata_send_time, NULL);

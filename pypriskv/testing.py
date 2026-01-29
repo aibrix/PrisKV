@@ -25,6 +25,7 @@
 import numpy as np
 import priskv
 import argparse
+import ctypes
 
 
 class PriskvClientTesting:
@@ -212,6 +213,96 @@ class PriskvClientTesting:
             status, _ = self.client.mexists([key])
             assert status != 0, f"mexists for key '{key}' failed (index {i})"
 
+    def test_memory_operations_full_flow(self):
+        """Test full flow: alloc -> write data -> seal -> acquire -> verify data -> release"""
+        TEST_KEY = "priskv_test_full_flow"
+        ALLOC_SIZE = 4096  # 4KB memory size
+        TIMEOUT = 3000
+
+        # Construct test data, pad with \x00 to match allocation size and prevent out-of-bounds access
+        test_data = b"Priskv_Memory_Data_Verify_2026\x00"
+        write_data = test_data.ljust(ALLOC_SIZE, b"\x00")
+        print(f"[DEBUG] Test data constructed, total length: {len(write_data)} bytes")
+
+        # ========== Step1: Allocate memory ==========
+        status, mem_addr, alloc_len = self.client.alloc(
+            key=TEST_KEY,
+            alloc_length=ALLOC_SIZE,
+            timeout=TIMEOUT
+        )
+        assert status == 0, f"alloc failed, status code: {status}"
+        assert mem_addr != 0, "alloc returned invalid memory address (0x0)"
+        assert alloc_len == ALLOC_SIZE, f"Allocation size mismatch, expected: {ALLOC_SIZE}, actual: {alloc_len}"
+        print(f"[DEBUG] alloc succeeded, memory address: {hex(mem_addr)}, allocated size: {alloc_len}")
+
+        # ========== Step2: Write data to the allocated physical memory ==========
+        try:
+            # Convert integer address to ctypes operable memory buffer
+            mem_buffer = (ctypes.c_char * alloc_len).from_address(mem_addr)
+            # Safe memory copy (equivalent to C memmove, no memory overlap risk)
+            ctypes.memmove(ctypes.byref(mem_buffer), write_data, len(write_data))
+            print(f"[DEBUG] Data write completed, target address: {hex(mem_addr)}")
+        except Exception as e:
+            raise RuntimeError(f"Memory write failed: {str(e)}") from e
+
+
+        acq_status, acq_addr, acq_len = self.client.acquire(TEST_KEY, TIMEOUT)
+        assert acq_status != 0, f"acquire a unseal key expect failed"
+
+        # ========== Step3: Seal the memory region ==========
+        seal_status = self.client.seal(TEST_KEY)
+        assert seal_status == 0, f"seal failed, status code: {seal_status}"
+        print("[DEBUG] seal succeeded, memory region unlocked")
+
+        # ========== Step4: Acquire memory information ==========
+        acq_status, acq_addr, acq_len = self.client.acquire(TEST_KEY, TIMEOUT)
+        assert acq_status == 0, f"acquire failed, status code: {acq_status}"
+        assert acq_addr == mem_addr, f"Memory address mismatch, allocated: {hex(mem_addr)}, acquired: {hex(acq_addr)}"
+        assert acq_len == ALLOC_SIZE, f"Memory length mismatch, expected: {ALLOC_SIZE}, actual: {acq_len}"
+        print(f"[DEBUG] acquire succeeded, acquired address: {hex(acq_addr)}, length: {acq_len}")
+
+        # ========== Step5: Read memory data and verify consistency (Core Logic) ==========
+        try:
+            read_buffer = (ctypes.c_char * acq_len).from_address(acq_addr)
+            read_data = bytes(read_buffer)
+        except Exception as e:
+            raise RuntimeError(f"Memory read failed: {str(e)}") from e
+
+        # Core assertion: verify written data and read data are identical
+        assert read_data == write_data, (
+            f"Data verification failed!\nWritten snippet: {write_data[:50]}...\nRead snippet: {read_data[:50]}..."
+        )
+        print("[INFO] ✅ Memory data consistency verification passed!")
+
+        # ========== Step6: Release memory resources ==========
+        rel_status = self.client.release(TEST_KEY)
+        assert rel_status == 0, f"release failed, status code: {rel_status}"
+        print("[DEBUG] release succeeded, memory region released")
+
+        acq_status, acq_addr, acq_len = self.client.acquire(TEST_KEY, TIMEOUT)
+        assert acq_status == 0, f"acquire after release failed, status code: {acq_status}"
+        print("[DEBUG] acquire after release succeeded, memory region acquire again")
+
+        rel_status = self.client.release(TEST_KEY)
+        assert rel_status == 0, f"release failed, status code: {rel_status}"
+        print("[DEBUG] release succeeded, memory region released")
+
+        # delete
+        assert self.client.delete(TEST_KEY) == 0
+        # acquire a deleted key
+        acq_status, acq_addr, acq_len = self.client.acquire(TEST_KEY, TIMEOUT)
+        assert acq_status != 0, f"Acquire a delete key expect failed"
+
+        # seal a deleted key
+        seal_status = self.client.seal(TEST_KEY)
+        assert seal_status != 0, f"seal a unexist key expect failed, status code: {seal_status}"
+
+        # release a deleted key
+        rel_status = self.client.release(TEST_KEY)
+        assert rel_status != 0, f"release a unexist key expect failed, status code: {rel_status}"
+
+
+
 
 def run_testing(testing):
     testing.set()
@@ -227,6 +318,7 @@ def run_testing(testing):
     testing.test_mget()
     testing.test_mexist()
     testing.test_mdel()
+    testing.test_memory_operations_full_flow()
 
     testing.cleanup()
 

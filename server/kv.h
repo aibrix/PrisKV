@@ -65,6 +65,12 @@ uint64_t priskv_get_value_blocks_inuse(void *kv);
 
 void priskv_update_valuelen(void *arg, uint32_t valuelen);
 
+int priskv_get_key_base(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
+                        void **_keynode, bool for_seal);
+
+int priskv_get_key_for_seal(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                            uint32_t *valuelen, void **_keynode);
+
 int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
                  void **_keynode);
 void priskv_get_key_end(void *arg);
@@ -72,6 +78,8 @@ void priskv_get_key_end(void *arg);
 int priskv_set_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t valuelen,
                  uint64_t timeout, void **_keynode);
 void priskv_set_key_end(void *arg);
+
+uint64_t priskv_value_addr_offset(void *_kv, uint8_t *val);
 
 int priskv_delete_key(void *kv, uint8_t *key, uint16_t keylen);
 
