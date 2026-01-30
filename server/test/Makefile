@@ -10,7 +10,7 @@ TEST_MEMORY = test-memory
 TEST_ACL = test-acl
 TEST_KV_EXPIRE_ROUTINE = test-kv-expire-routine
 TEST_BE_REDIS = test-be-redis
-CFLAGS = -fPIC -Wall -g -O0 -I .. -I ../../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lpthread
+CFLAGS = -fPIC -Wall -g -O0 -I .. -I ../../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lpthread -ldl
 FMT = clang-format-19
 
 # default gcc, or use clang on 'make LLVM=1'

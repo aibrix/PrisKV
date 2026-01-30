@@ -1,7 +1,7 @@
 VERSION = 0.1
 UCX_CFLAGS = $(shell pkg-config --cflags ucx)
 UCX_LIBS = $(shell pkg-config --libs ucx)
-LIBS = $(UCX_LIBS) -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis
+LIBS = $(UCX_LIBS) -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis -ldl
 INCFLAGS = -I../include -I../client
 CFLAGS = -fPIC -Wall -g $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code
 FMT = clang-format-19
