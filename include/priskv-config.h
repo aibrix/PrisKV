@@ -25,6 +25,8 @@ extern "C"
 #include <ucs/sys/compiler_def.h>
 #include <ucs/sys/preprocessor.h>
 
+#include "priskv-log.h"
+
 /**
  * @brief Declare config table.
  * 
@@ -100,8 +102,14 @@ typedef struct priskv_server_config {
 
 } priskv_server_config_t;
 
+typedef struct priskv_logging_config {
+    priskv_log_level log_level;
+    char *log_file;
+} priskv_logging_config_t;
+
 typedef struct priskv_config {
     priskv_transport_backend transport;
+    priskv_logging_config_t logging;
     priskv_client_config_t client;
     priskv_server_config_t server;
 } priskv_config_t;

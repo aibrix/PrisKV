@@ -90,7 +90,7 @@ static uint64_t g_total_value_size = 0;
 
 static int g_rows, g_cols;
 
-static priskv_log_level g_log_level = priskv_log_notice;
+static priskv_log_level g_log_level = priskv_log_level_max;
 static const char *g_log_file = NULL;
 static priskv_logger *g_logger;
 

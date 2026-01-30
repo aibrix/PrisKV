@@ -46,7 +46,7 @@ static const char *raddr;
 static int rport = ('H' << 8 | 'P');
 static const char *laddr;
 static int lport;
-static priskv_log_level log_level = priskv_log_notice;
+static priskv_log_level log_level = priskv_log_level_max;
 static priskv_logger *g_logger;
 static const char *log_file = NULL;
 static int g_exit = 0;

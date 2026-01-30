@@ -44,7 +44,7 @@ static uint32_t max_key = PRISKV_TRANSPORT_DEFAULT_KEY;
 static uint32_t value_block_size = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK_SIZE;
 static uint64_t value_block = PRISKV_TRANSPORT_DEFAULT_VALUE_BLOCK;
 static uint8_t threads = 1;
-static priskv_log_level log_level = priskv_log_notice;
+static priskv_log_level log_level = priskv_log_level_max;
 static char *memfile;
 static const char *operation = "info";
 

@@ -41,6 +41,25 @@ static ucs_config_field_t priskv_server_config_table[] = {
     {NULL}
 };
 
+static ucs_config_field_t priskv_logging_config_table[] = {
+    {"LOG_LEVEL", "notice", "PrisKV log level.", ucs_offsetof(priskv_logging_config_t, log_level),
+     UCS_CONFIG_TYPE_ENUM(priskv_log_level_str)},
+
+    {"LOG_FILE", "",
+     "PrisKV log file. \n"
+     "Log file configuration syntax: protocol[:path]\n"
+     "Supported protocols:\n"
+     "- stdout: write to standard output; ignores path\n"
+     "- stderr: write to standard error; ignores path\n"
+     "- null: discard logs; ignores path\n"
+     "- file: append to a single file, e.g., file:/var/log/priskv.log\n"
+     "- multifile: write per-level files, e.g., multifile:/var/log/priskv/priskv\n"
+     "  Final files: <path>.<level>, where level in [error, warn, notice, info, debug]\n"
+     "- unix: connect to a UNIX domain socket and write, e.g., unix:/run/priskv/log.sock",
+     ucs_offsetof(priskv_logging_config_t, log_file), UCS_CONFIG_TYPE_STRING},
+
+    {NULL}};
+
 static ucs_config_field_t priskv_config_table[] = {
     {"TRANSPORT", "RDMA", "PrisKV Transport. Supported transports are [RDMA, UCX].",
      ucs_offsetof(priskv_config_t, transport),
@@ -51,6 +70,9 @@ static ucs_config_field_t priskv_config_table[] = {
 
     {"", "", NULL, ucs_offsetof(priskv_config_t, server),
      UCS_CONFIG_TYPE_TABLE(priskv_server_config_table)},
+
+    {"", "", NULL, ucs_offsetof(priskv_config_t, logging),
+     UCS_CONFIG_TYPE_TABLE(priskv_logging_config_table)},
 
     {NULL}
 };
@@ -71,6 +93,15 @@ static void priskv_config_init_impl(void)
             stdout, "PrisKV Environment Variables", &g_config, priskv_config_table, NULL,
             PRISKV_ENV_PREFIX,
             UCS_CONFIG_PRINT_CONFIG | UCS_CONFIG_PRINT_HEADER | UCS_CONFIG_PRINT_DOC, NULL);
+
+        // logging
+        priskv_set_log_level(g_config.logging.log_level);
+        if (g_config.logging.log_file && strcmp(g_config.logging.log_file, "")) {
+            g_default_logger = priskv_logger_new(g_config.logging.log_file);
+            if (g_default_logger) {
+                priskv_set_log_fn(priskv_logger_default_fn);
+            }
+        }
     }
 }
 

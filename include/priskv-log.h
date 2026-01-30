@@ -80,6 +80,14 @@ void priskv_logger_printf(priskv_logger *logger, priskv_log_level level, const c
              "    (multifile:PATH)\tprint to multiple files based on log level\n" __prefix         \
              "    (unix:PATH)\t\tprint to unix socket\n"
 
+extern const char *priskv_log_level_str[];
+extern priskv_logger *g_default_logger;
+
+static inline void priskv_logger_default_fn(priskv_log_level level, const char *msg)
+{
+    priskv_logger_printf(g_default_logger, level, "%s", msg);
+}
+
 #if defined(__cplusplus)
 }
 #endif

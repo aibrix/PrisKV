@@ -54,7 +54,7 @@ static uint8_t threads = 1;
 static uint32_t thread_flags;
 static uint32_t expire_routine_interval = PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL;
 static const char *memfile;
-static priskv_log_level log_level = priskv_log_notice;
+static priskv_log_level log_level = priskv_log_level_max;
 static const char *g_log_file = NULL;
 static priskv_logger *g_logger = NULL;
 static priskv_transport_conn_cap conn_cap = {.max_sgl = PRISKV_TRANSPORT_DEFAULT_SGL,

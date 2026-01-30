@@ -36,10 +36,14 @@
 
 static priskv_log_level _log_level = priskv_log_warn;
 static priskv_log_fn _log_fn = priskv_log_default_fn;
+priskv_logger *g_default_logger = NULL;
 
 void priskv_set_log_level(priskv_log_level level)
 {
-    assert(level <= priskv_log_debug);
+    if (level >= priskv_log_level_max) {
+        return;
+    }
+
     _log_level = level;
 }
 
@@ -53,10 +57,18 @@ void priskv_set_log_fn(priskv_log_fn fn)
     _log_fn = fn;
 }
 
-static const char *priskv_log_level_str[] = {
+const char *priskv_log_level_str[] = {
     [priskv_log_error] = "error", [priskv_log_warn] = "warn",   [priskv_log_notice] = "notice",
-    [priskv_log_info] = "info",   [priskv_log_debug] = "debug", [priskv_log_level_max] = "unknown",
+    [priskv_log_info] = "info",   [priskv_log_debug] = "debug", [priskv_log_level_max] = NULL,
 };
+
+static inline const char *priskv_log_level_to_str(priskv_log_level level)
+{
+    if (level >= priskv_log_level_max) {
+        return "unknown";
+    }
+    return priskv_log_level_str[level];
+}
 
 void priskv_log(priskv_log_level level, const char *fmt, ...)
 {
@@ -74,7 +86,7 @@ void priskv_log(priskv_log_level level, const char *fmt, ...)
     nowstr[24] = '\0';
 
     /* print header part: [TIMESTAMP]LOG_LEVEL */
-    off = snprintf(msg, sizeof(msg), "[%s %6s] ", nowstr, priskv_log_level_str[level]);
+    off = snprintf(msg, sizeof(msg), "[%s %6s] ", nowstr, priskv_log_level_to_str(level));
 
     /* print real log */
     va_start(ap, fmt);
@@ -175,7 +187,7 @@ static int priskv_log_multifile_open(priskv_logger *logger)
 
     char filepath[1024] = {0};
     for (i = 0; i < priskv_log_level_max; i++) {
-        snprintf(filepath, sizeof(filepath), "%s.%s", logger->path, priskv_log_level_str[i]);
+        snprintf(filepath, sizeof(filepath), "%s.%s", logger->path, priskv_log_level_to_str(i));
         multifile->files[i] = fopen(filepath, "a");
         if (!multifile->files[i]) {
             goto err;
