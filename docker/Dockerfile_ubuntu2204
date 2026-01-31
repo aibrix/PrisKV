@@ -1,19 +1,26 @@
 FROM docker.io/library/ubuntu:22.04
 
+# Config apt repositories
+RUN apt update && apt install software-properties-common -y
+RUN add-apt-repository ppa:deadsnakes/ppa -y
+RUN apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
+RUN add-apt-repository "deb http://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /"
+RUN apt update
+
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt install -y git gcc make wget librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev libhiredis-dev liburing-dev pkg-config
+RUN apt install -y git gcc make wget librdmacm-dev rdma-core libibverbs-dev libncurses5-dev libmount-dev libevent-dev libssl-dev libhiredis-dev liburing-dev pkg-config
 
 # Install Python
 ARG PYTHON_VERSION=3.12
-RUN apt install software-properties-common -y
-RUN add-apt-repository ppa:deadsnakes/ppa -y
-RUN apt update
 RUN apt install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-venv python3-pip
 RUN python${PYTHON_VERSION} -m ensurepip --upgrade
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 10
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python${PYTHON_VERSION} 10
 RUN update-alternatives --config python3
 RUN python3 -m pip install --upgrade setuptools wheel pip pybind11
+
+# Install cuda 12.1
+RUN apt install -y cuda-12-1
 
 # install cmake
 RUN cd /tmp && \
@@ -37,7 +44,7 @@ WORKDIR /root/priskv
 ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
 
 RUN mkdir /workspace
-RUN make all
+RUN make all PRISKV_USE_CUDA=1
 RUN cp server/priskv-server /workspace/
 RUN cp client/priskv-benchmark /workspace/
 RUN cp client/priskv-client /workspace/

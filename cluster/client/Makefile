@@ -4,7 +4,7 @@ STATIC_LIB_TMP = $(LIB_NAME).tmp.a
 INCFLAGS = -I../../client/ -I../../include/
 UCX_CFLAGS = $(shell pkg-config --cflags ucx)
 UCX_LDFLAGS = $(shell pkg-config --libs ucx)
-LIBS = -lrdmacm -libverbs -lpthread -lhiredis -lncurses -luuid $(UCX_LDFLAGS)
+LIBS = -lrdmacm -libverbs -lpthread -lhiredis -lncurses -luuid -ldl $(UCX_LDFLAGS)
 CFLAGS = -fPIC -Wall -g -O0 $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code $(UCX_CFLAGS) $(LIBS)
 CC = gcc
 AR = ar

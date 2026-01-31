@@ -94,6 +94,8 @@ typedef struct priskv_kv {
 
     void *value_buddy;                /* buddy handle of value */
     uint8_t *value_base;              /* buddy memory base address */
+    int shm_fd;
+    uint64_t shm_len;
     uint32_t expire_routine_interval; /* interval to run expire routine */
     priskv_expire_routine_statics expire_routine_statics;
 } priskv_kv;
@@ -155,8 +157,9 @@ static inline uint32_t calculate_hash_bucket_count(uint32_t max_keys)
     return result;
 }
 
-void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
-                  uint16_t max_key_length, uint32_t value_block_size, uint64_t value_blocks)
+void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
+                    uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
+                    uint64_t value_blocks)
 {
     priskv_kv *kv;
     uint32_t bucket_count;
@@ -169,7 +172,8 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
 
     /* step 1: allocate memory for hash tables */
     bucket_count = calculate_hash_bucket_count(max_keys);
-    kv->hash_heads = priskv_mem_malloc(bucket_count * sizeof(priskv_hash_head), true);
+    kv->hash_heads = priskv_mem_malloc(bucket_count * sizeof(priskv_hash_head),
+                                       MAP_PRIVATE | MAP_ANONYMOUS, -1, true);
     assert(kv->hash_heads);
     for (uint32_t i = 0; i < bucket_count; i++) {
         priskv_hash_head *hash_head = &kv->hash_heads[i];
@@ -178,7 +182,8 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
     }
 
     /* step 2: allocate memory for tiering wait queue */
-    kv->tiering_wait_heads = priskv_mem_malloc(bucket_count * sizeof(priskv_tiering_wait_head), true);
+    kv->tiering_wait_heads = priskv_mem_malloc(bucket_count * sizeof(priskv_tiering_wait_head),
+                                               MAP_PRIVATE | MAP_ANONYMOUS, -1, true);
     assert(kv->tiering_wait_heads);
     for (uint32_t i = 0; i < bucket_count; i++) {
         priskv_tiering_wait_head *tiering_wait_head = &kv->tiering_wait_heads[i];
@@ -203,6 +208,8 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, uint32_t max_keys,
 
     /* step 5: create buddy for values */
     kv->value_base = value_base;
+    kv->shm_fd = shm_fd;
+    kv->shm_len = shm_len;
     kv->value_buddy = priskv_buddy_create(value_base, value_blocks, value_block_size);
     assert(kv->value_base == priskv_buddy_base(kv->value_buddy));
 
@@ -229,6 +236,20 @@ void *priskv_get_value_base(void *_kv)
     priskv_kv *kv = _kv;
 
     return kv->value_base;
+}
+
+int priskv_get_shm_fd(void *_kv)
+{
+    priskv_kv *kv = _kv;
+
+    return kv->shm_fd;
+}
+
+uint64_t priskv_get_shm_length(void *_kv)
+{
+    priskv_kv *kv = _kv;
+
+    return kv->shm_len;
 }
 
 uint64_t priskv_get_value_blocks(void *_kv)

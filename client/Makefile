@@ -3,7 +3,7 @@ HEADERS = priskv.h
 MANPAGE = ../man/libpriskv.7
 STATIC_LIB = $(LIB_NAME).a
 INCFLAGS = -I../include
-CFLAGS = -fPIC -Wall -g -O0 $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lncurses -lpthread -luuid
+CFLAGS = -fPIC -Wall -g -O0 $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lncurses -lpthread -luuid -ldl
 CC = gcc
 AR = ar
 FMT = clang-format-19

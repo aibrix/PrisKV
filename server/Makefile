@@ -1,7 +1,7 @@
 VERSION = 0.1
 UCX_CFLAGS = $(shell pkg-config --cflags ucx)
 UCX_LIBS = $(shell pkg-config --libs ucx)
-LIBS = $(UCX_LIBS) -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis
+LIBS = $(UCX_LIBS) -lrdmacm -libverbs -lpthread -lmount -levent -levent_openssl -lssl -lcrypto -luring -lhiredis -ldl
 INCFLAGS = -I../include -I../client
 CFLAGS = -fPIC -Wall -g $(INCFLAGS) -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code
 FMT = clang-format-19
@@ -20,6 +20,16 @@ ifneq ($(LLVM),)
 CC = clang
 else
 CFLAGS += -Wduplicated-branches -Wrestrict
+endif
+
+CUDA_HOME ?= /usr/local/cuda
+CUDA_LIB ?= $(CUDA_HOME)/lib64
+CUDA_INC ?= $(CUDA_HOME)/include
+CUDARTLIB  ?= cudart_static
+CUDA_LDFLAGS = -I$(CUDA_INC) -L$(CUDA_LIB) -l$(CUDARTLIB) -lcuda -ldl -lrt
+
+ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
+CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
 ifneq ($(PRISKV_RELEASE),)

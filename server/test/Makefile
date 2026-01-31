@@ -10,7 +10,7 @@ TEST_MEMORY = test-memory
 TEST_ACL = test-acl
 TEST_KV_EXPIRE_ROUTINE = test-kv-expire-routine
 TEST_BE_REDIS = test-be-redis
-CFLAGS = -fPIC -Wall -g -O0 -I .. -I ../../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lpthread
+CFLAGS = -fPIC -Wall -g -O0 -I .. -I ../../include -D_GNU_SOURCE -Wshadow -Wformat=2 -Wwrite-strings -fstack-protector-strong -Wnull-dereference -Wunreachable-code -lpthread -ldl
 FMT = clang-format-19
 
 # default gcc, or use clang on 'make LLVM=1'
@@ -19,6 +19,16 @@ ifneq ($(LLVM),)
 CC = clang
 else
 CFLAGS += -Wduplicated-branches -Wrestrict
+endif
+
+CUDA_HOME ?= /usr/local/cuda
+CUDA_LIB ?= $(CUDA_HOME)/lib64
+CUDA_INC ?= $(CUDA_HOME)/include
+CUDARTLIB  ?= cudart_static
+CUDA_LDFLAGS = -I$(CUDA_INC) -L$(CUDA_LIB) -l$(CUDARTLIB) -lcuda -ldl -lrt
+
+ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
+CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
 .PHONY: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
@@ -55,7 +65,7 @@ $(TEST_KV_MT):
 endif
 
 $(TEST_MEMORY): $(OBJS)
-	$(CC) test_memory.c ../memory.c ../../lib/log.c $(CFLAGS) -lmount -o $(TEST_MEMORY)
+	$(CC) test_memory.c ../memory.c ../../lib/log.c ../../lib/config.c $(CFLAGS) $(UCX_CFLAGS) $(UCX_LIBS) -lmount -o $(TEST_MEMORY)
 
 $(TEST_ACL): $(OBJS)
 	$(CC) test_acl.c ../acl.c ../../lib/log.c $(CFLAGS) -lrdmacm -o $(TEST_ACL)

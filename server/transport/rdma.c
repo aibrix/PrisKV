@@ -78,7 +78,7 @@ static int priskv_rdma_mem_new(priskv_transport_conn *conn, priskv_transport_mem
     uint8_t *buf;
     int ret;
 
-    buf = priskv_mem_malloc(size, guard);
+    buf = priskv_mem_malloc(size, MAP_PRIVATE | MAP_ANONYMOUS, -1, guard);
     if (!buf) {
         priskv_log_error("RDMA: failed to allocate %s buffer: %m\n", name);
         ret = -ENOMEM;
@@ -732,6 +732,8 @@ static int priskv_rdma_resp(priskv_transport_conn *client, struct rdma_cm_id *cm
     rep.max_key_length = htobe16(client->conn_cap.max_key_length);
     rep.max_inflight_command = htobe16(client->conn_cap.max_inflight_command);
     rep.capacity = htobe64(capacity);
+    // We don't use shared memory for kv transfer if RDMA is available
+    rep.shm_fd = htobe32(-1);
 
     struct rdma_conn_param resp_param = {0};
     resp_param.responder_resources = 1;

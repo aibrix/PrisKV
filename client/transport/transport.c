@@ -26,8 +26,10 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <sys/stat.h>
 
 #include "priskv-config.h"
+#include "priskv-cuda.h"
 #include "priskv-event.h"
 #include "priskv-log.h"
 
@@ -91,6 +93,49 @@ static void __attribute__((constructor)) priskv_client_transport_init(void)
     }
 }
 
+static int priskv_transport_mmap(void **addr, uint64_t *size, int *fd, uint32_t shm_pid, int shm_fd)
+{
+    char proc_path[256];
+    snprintf(proc_path, sizeof(proc_path), "/proc/%d/fd/%d", shm_pid, shm_fd);
+
+    struct stat statbuf;
+    int ret = stat(proc_path, &statbuf);
+    if (ret) {
+        priskv_log_error("Transport: failed to stat file %s\n", proc_path);
+        goto err;
+    }
+
+    *fd = open(proc_path, O_RDWR);
+    if (*fd == -1) {
+        priskv_log_error("Transport: failed to open file %s\n", proc_path);
+        goto err;
+    }
+
+    *size = statbuf.st_size;
+    *addr = mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_SHARED, *fd, 0);
+    if (*addr == MAP_FAILED) {
+        priskv_log_error("Transport: failed to mmap shm buffer %m\n");
+        goto err;
+    }
+
+    if (madvise(*addr, *size, MADV_DONTDUMP)) {
+        priskv_log_warn("Transport: failed to set dont dump, skip %m\n");
+    }
+    return 0;
+
+err:
+    if (*addr != MAP_FAILED) {
+        munmap(*addr, *size);
+        *addr = NULL;
+    }
+    if (*fd > 0) {
+        close(*fd);
+        *fd = -1;
+    }
+    *size = 0;
+    return -1;
+}
+
 void priskv_keyset_free(priskv_keyset *keyset)
 {
     if (!keyset) {
@@ -120,6 +165,7 @@ priskv_client *priskv_connect(const char *raddr, int rport, const char *laddr, i
         return NULL;
     }
 
+    client->shm_addr = NULL;
     client->epollfd = epoll_create1(0);
     if (client->epollfd < 0) {
         priskv_log_error("Transport: failed to create epoll fd\n");
@@ -138,8 +184,38 @@ priskv_client *priskv_connect(const char *raddr, int rport, const char *laddr, i
         goto err;
     }
 
+    // If use shm, mmap shm buffer into memory space
+    if (g_config.mem.use_shm) {
+        if (client->conns[0]->shm_pid < 0) {
+            priskv_log_error("Transport: server shm_pid is not valid\n");
+            goto err;
+        }
+
+        if (client->conns[0]->shm_fd < 0) {
+            priskv_log_error("Transport: server shm_fd is not valid\n");
+            goto err;
+        }
+
+        if (priskv_transport_mmap(&client->shm_addr, &client->shm_len, &client->shm_fd,
+                                  client->conns[0]->shm_pid, client->conns[0]->shm_fd)) {
+            goto err;
+        }
+
+        if (g_config.mem.use_cuda) {
+            if (priskv_cuda_host_register(client->shm_addr, client->shm_len)) {
+                goto err;
+            }
+        }
+    }
+
     return client;
 err:
+    if (client->shm_addr) {
+        munmap(client->shm_addr, client->shm_len);
+        close(client->shm_fd);
+        client->shm_addr = NULL;
+    }
+
     client->ops->deinit(client);
     close(client->epollfd);
     free(client);
@@ -153,6 +229,16 @@ void priskv_close(priskv_client *client)
     client->ops->deinit(client);
     close(client->epollfd);
     client->epollfd = -1;
+    if (client->shm_addr) {
+#ifdef PRISKV_USE_CUDA
+        if (g_config.mem.use_cuda) {
+            cudaHostUnregister(client->shm_addr);
+        }
+#endif
+        munmap(client->shm_addr, client->shm_len);
+        close(client->shm_fd);
+        client->shm_addr = NULL;
+    }
     free(client);
 }
 

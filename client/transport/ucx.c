@@ -466,6 +466,8 @@ static int priskv_ucx_handshake(priskv_transport_conn *conn, ucp_address_t **add
     conn->param.max_key_length = be16toh(peer_hs.cap.max_key_length);
     uint16_t max_inflight_command = be16toh(peer_hs.cap.max_inflight_command);
     conn->capacity = be64toh(peer_hs.cap.capacity);
+    conn->shm_pid = be32toh(peer_hs.cap.shm_pid);
+    conn->shm_fd = be32toh(peer_hs.cap.shm_fd);
     uint32_t peer_worker_address_len = be32toh(peer_hs.address_len);
     if (peer_worker_address_len > 0) {
         peer_worker_address = malloc(peer_worker_address_len);
@@ -506,9 +508,9 @@ static int priskv_ucx_handshake(priskv_transport_conn *conn, ucp_address_t **add
 
     priskv_log_info(
         "UCX: got response version %d, max_sgl %d, max_key_length %d, max_inflight_command "
-        "%d, capacity %ld, address_len %d from server\n",
+        "%d, capacity %ld, shm_pid %d, shm_fd %ld, address_len %d from server\n",
         version, conn->param.max_sgl, conn->param.max_key_length, max_inflight_command,
-        conn->capacity, peer_worker_address_len);
+        conn->capacity, conn->shm_pid, conn->shm_fd, peer_worker_address_len);
 
     ret = priskv_ucx_modify_max_inflight_command(conn, max_inflight_command);
     if (ret) {
