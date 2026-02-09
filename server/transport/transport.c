@@ -452,7 +452,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             break;
         }
         {
-            uint64_t addr_offset = priskv_value_addr_offset(conn->kv, val);
+            uint64_t addr_offset = 0;
+            status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             priskv_log_debug("Transport: ALLOC send response addr_offset 0x%lx, alloc_length %d\n",
                              addr_offset, alloc_length);
             ret = driver->send_response(conn, req->request_id, status, alloc_length, addr_offset);
@@ -467,7 +468,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             break;
         }
         if (priskv_get_log_level() >= priskv_log_debug) {
-            uint64_t addr_offset = priskv_value_addr_offset(conn->kv, val);
+            uint64_t addr_offset = 0;
+            status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             char value_short[128] = {0};
             priskv_string_shorten((const char *)val, valuelen, value_short, sizeof(value_short));
             priskv_log_debug(
@@ -487,7 +489,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             priskv_get_key_end(keynode);
             break;
         }
-        uint64_t addr_offset = priskv_value_addr_offset(conn->kv, val);
+        uint64_t addr_offset = 0;
+        status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
         ret = driver->send_response(conn, req->request_id, status, valuelen, addr_offset);
         break;
 

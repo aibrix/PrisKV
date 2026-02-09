@@ -98,6 +98,7 @@ typedef struct priskv_kv {
     uint64_t shm_len;
     uint32_t expire_routine_interval; /* interval to run expire routine */
     priskv_expire_routine_statics expire_routine_statics;
+    void *mf_ctx;
 } priskv_kv;
 
 static void priskv_lru_access(priskv_key *keynode, bool is_in_list)
@@ -159,7 +160,7 @@ static inline uint32_t calculate_hash_bucket_count(uint32_t max_keys)
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
-                    uint64_t value_blocks)
+                    uint64_t value_blocks, void *mf_ctx)
 {
     priskv_kv *kv;
     uint32_t bucket_count;
@@ -212,6 +213,8 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t
     kv->shm_len = shm_len;
     kv->value_buddy = priskv_buddy_create(value_base, value_blocks, value_block_size);
     assert(kv->value_base == priskv_buddy_base(kv->value_buddy));
+
+    kv->mf_ctx = mf_ctx;
 
     priskv_log_notice("KV: max_key %d, max_key_length %d, value_block_size %d, value_blocks %ld\n",
                     max_keys, max_key_length, value_block_size, value_blocks);
@@ -548,10 +551,16 @@ void priskv_set_key_end(void *arg)
     keynode->inprocess = false;
 }
 
-uint64_t priskv_value_addr_offset(void *_kv, uint8_t *val)
+int priskv_value_addr_offset(void *_kv, uint8_t *val, uint64_t *addr_offset)
 {
     priskv_kv *kv = _kv;
-    return val - kv->value_base;
+    void *mf_ctx = kv->mf_ctx;
+    if (mf_ctx) {
+        *addr_offset = priskv_mem_value_offset(kv->mf_ctx, val);
+        return PRISKV_RESP_STATUS_OK;
+    } else {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
+    }
 }
 
 int priskv_delete_key(void *_kv, uint8_t *key, uint16_t keylen)

@@ -56,7 +56,8 @@ int main()
     key_base = calloc(max_keys, priskv_mem_key_size(max_key_length));
     value_base = calloc(1, priskv_buddy_mem_size(value_blocks, value_block_size));
     kv = priskv_new_kv(key_base, value_base, -1, 0, max_keys, max_key_length, value_block_size,
-                       value_blocks);
+                       value_blocks, NULL,
+                       /* mf_ctx */);
     if (!kv) {
         printf("TEST BG_THREAD: create kv [FAILED]\n");
         return -1;

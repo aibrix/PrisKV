@@ -45,7 +45,7 @@ typedef struct priskv_transport_conn priskv_transport_conn;
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
-                    uint64_t value_blocks);
+                    uint64_t value_blocks, void *mf_ctx);
 
 void priskv_destroy_kv(void *kv);
 
@@ -79,7 +79,7 @@ int priskv_set_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint
                  uint64_t timeout, void **_keynode);
 void priskv_set_key_end(void *arg);
 
-uint64_t priskv_value_addr_offset(void *_kv, uint8_t *val);
+int priskv_value_addr_offset(void *_kv, uint8_t *val, uint64_t *addr_offset);
 
 int priskv_delete_key(void *kv, uint8_t *key, uint16_t keylen);
 

@@ -325,8 +325,7 @@ static void priskv_ucx_recv_resp_cb(ucs_status_t status, ucp_tag_t sender_tag, s
     ucx_req = (priskv_transport_req *)request_id;
     ucx_req->status = resp_status;
     ucx_req->length = resp_length;
-    ucx_req->memory_region.addr =
-        (uint64_t)(conn->client->shm_addr + getpagesize() + resp_addr_offset);
+    ucx_req->memory_region.addr = (uint64_t)(conn->client->shm_addr + resp_addr_offset);
     ucx_req->memory_region.length = resp_length;
 
     if (ucx_req->cmd != PRISKV_COMMAND_KEYS) {
