@@ -25,6 +25,7 @@
 import priskv
 import time
 import argparse
+import ctypes
 
 
 def align_down(x, size):
@@ -55,12 +56,16 @@ class PriskvBenchmark:
             self.exec_op = self.op_set
         elif self.op_name == "get":
             self.exec_op = self.op_get
+        elif self.op_name == "zset":
+            self.exec_op = self.op_zset
+        elif self.op_name == "zget":
+            self.exec_op = self.op_zget
         else:
-            raise ValueError("Invalid operator. Must be 'set' or 'get'.")
+            raise ValueError("Invalid operator. Must be 'set', 'get', 'zset' or 'zget'.")
 
     def check_args(self):
-        if self.op_name not in ["set", "get"]:
-            raise ValueError("Invalid operator. Must be 'set' or 'get'.")
+        if self.op_name not in ["set", "get", "zset", "zget"]:
+            raise ValueError("Invalid operator. Must be 'set', 'get', 'zset' or 'zget'.")
 
         if self.mem_type not in ["gpu", "cpu", "npu"]:
             raise ValueError(
@@ -73,12 +78,34 @@ class PriskvBenchmark:
         return self.client.get(self.shared_key, self.shared_val_sgl,
                                self.value_len)
 
+    def op_zset(self):
+        # 1. alloc
+        status, addr, length = self.client.alloc(self.shared_key, self.value_len)
+        if status != 0:
+            return status
+        # 2. direct copy (memmove)
+        ctypes.memmove(addr, self.shared_val_sgl.iova, self.value_len)
+        # 3. seal
+        return self.client.seal(self.shared_key)
+
+    def op_zget(self):
+        # 1. acquire
+        status, addr, length = self.client.acquire(self.shared_key)
+        if status != 0:
+            return status
+        # 2. direct copy (memmove)
+        ctypes.memmove(self.shared_val_sgl.iova, addr, length)
+        # 3. release
+        return self.client.release(self.shared_key)
+
     def disconnect(self):
         self.client.close()
 
     def prepare_env(self):
         if self.op_name == "get":
             self.op_set()
+        elif self.op_name == "zget":
+            self.op_zset()
 
     def run(self):
         self.check_args()
@@ -184,7 +211,7 @@ def main():
     parser.add_argument("--operation",
                         type=str,
                         default="get",
-                        help="operator [set/get]")
+                        help="operator [set/get/zset/zget]")
 
     parser.add_argument("--key-len",
                         type=int,
