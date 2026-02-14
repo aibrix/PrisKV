@@ -703,8 +703,8 @@ static int test_hash_bucket_count()
     value_base = calloc(1, priskv_buddy_mem_size(value_blocks, value_block_size));
 
     for (int i = 0; i < len; i++) {
-        kv = priskv_new_kv(key_base, value_base, -1, 0, keys_bucket_pair[i].max_keys, max_key_length,
-                           value_block_size, value_blocks);
+        kv = priskv_new_kv(key_base, value_base, -1, 0, keys_bucket_pair[i].max_keys,
+                           max_key_length, value_block_size, value_blocks, NULL /* mf_ctx */);
         assert(kv);
 
         if (priskv_get_bucket_count(kv) != keys_bucket_pair[i].bucket_count) {
@@ -752,7 +752,7 @@ int main()
     key_base = calloc(max_keys, priskv_mem_key_size(max_key_length));
     value_base = calloc(1, priskv_buddy_mem_size(value_blocks, value_block_size));
     kv = priskv_new_kv(key_base, value_base, -1, 0, max_keys, max_key_length, value_block_size,
-                       value_blocks);
+                       value_blocks, NULL /* mf_ctx */);
     assert(kv);
 
     /* step 1, get keys from empty KV */

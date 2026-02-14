@@ -34,7 +34,7 @@ def priskv_unit_test(parallel: bool = True):
         "./server/test/test-slab-mt", "./server/test/test-buddy",
         "./server/test/test-buddy-mt", "./server/test/test-kv",
         "./server/test/test-kv-mt", "./server/test/test-memory --no-tmpfs",
-        "./server/test/test-slab"
+        "./server/test/test-slab", "./server/test/test-transport"
     ]
 
     print("---- PrisKV UNIT TEST ----")

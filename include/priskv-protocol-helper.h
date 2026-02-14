@@ -105,8 +105,9 @@ static inline void priskv_ucx_to_hex(uint8_t *hex, uint8_t *str, uint32_t str_le
 
 static inline const char *priskv_command_str(priskv_req_command cmd)
 {
-    static const char *cmd_str[] = {"GET",    "SET",  "TEST",   "DELETE",
-                                    "EXPIRE", "KEYS", "NRKEYS", "FLUSH"};
+    static const char *cmd_str[] = {"GET",     "SET",     "TEST",  "DELETE", "EXPIRE",
+                                    "KEYS",    "NRKEYS",  "FLUSH", "ALLOC",  "SEAL",
+                                    "ACQUIRE", "RELEASE", "DROP"};
 
     if (cmd >= PRISKV_COMMAND_MAX) {
         return "unknown";
@@ -142,6 +143,9 @@ static inline const char *priskv_resp_status_str(priskv_resp_status status)
     case PRISKV_RESP_STATUS_NO_SUCH_KEY:
         return "No such key";
 
+    case PRISKV_RESP_STATUS_NO_SUCH_TOKEN:
+        return "No such token";
+
     case PRISKV_RESP_STATUS_INVALID_SGL:
         return "Invalid SGL";
 
@@ -156,6 +160,9 @@ static inline const char *priskv_resp_status_str(priskv_resp_status status)
 
     case PRISKV_RESP_STATUS_SERVER_ERROR:
         return "Server internal error";
+
+    case PRISKV_RESP_STATUS_PERMISSION_DENIED:
+        return "Permission denied";
 
     case PRISKV_RESP_STATUS_NO_MEM:
         return "No memory";

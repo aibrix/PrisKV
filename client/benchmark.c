@@ -80,6 +80,7 @@ static int g_device_id = 0;
 static uint16_t g_max_sgl = 1;
 static bool g_transfer = false;
 static bool g_temp_reg = false;
+static bool g_zero_copy = false; /* Use token-based ZeroCopy mode */
 
 static int64_t g_key_min_len = DEFAULT_MIN_KEY_LEN;
 static int64_t g_key_max_len = DEFAULT_MAX_KEY_LEN;
@@ -218,6 +219,7 @@ struct job_context {
     job_info info;
     pthread_spinlock_t lock;
     char err_msg[STRING_MAX_LEN];
+    const char *last_stage;
 };
 
 struct job_sem {
@@ -868,6 +870,103 @@ typedef struct {
     int ignore_no_such_key;
 } priskv_req_context;
 
+typedef struct {
+    priskv_context *pctx;
+    void (*cb)(int, void *);
+    void *cbarg;
+    void *value;
+    uint32_t value_len;
+    uint64_t token;
+} zc_get_ctx;
+
+static void zc_release_cb(uint64_t rid, priskv_status status, void *result);
+static void zc_acquire_cb(uint64_t rid, priskv_status status, void *result);
+
+typedef struct {
+    priskv_context *pctx;
+    void (*cb)(int, void *);
+    void *cbarg;
+    void *value;
+    uint32_t value_len;
+    uint64_t token;
+} zc_set_ctx;
+
+static void zc_seal_cb(uint64_t rid, priskv_status status, void *result);
+static void zc_alloc_cb(uint64_t rid, priskv_status status, void *result);
+
+typedef struct {
+    priskv_context *pctx;
+    void (*cb)(int, void *);
+    void *cbarg;
+    uint64_t token;
+} zc_del_ctx;
+
+/* Remove unused ZeroCopy DROP callback declarations */
+/* Forward declaration of GET callback for transfer path */
+static void priskv_get_transfer_cb(int status, void *arg);
+
+/* ==== ZeroCopy callback implementations ==== */
+static void zc_release_cb(uint64_t rid, priskv_status status, void *result)
+{
+    zc_get_ctx *zctx = (zc_get_ctx *)rid;
+    zctx->cb(status, zctx->cbarg);
+    free(zctx);
+}
+
+static void zc_acquire_cb(uint64_t rid, priskv_status status, void *result)
+{
+    zc_get_ctx *zctx = (zc_get_ctx *)rid;
+    zctx->pctx->job->last_stage = "ACQUIRE";
+    if (status != PRISKV_STATUS_OK) {
+        priskv_log_warn("ZeroCopy ACQUIRE failed: status(%d) %s", status, priskv_status_str(status));
+        zctx->cb(status, zctx->cbarg);
+        free(zctx);
+        return;
+    }
+    priskv_memory_region *region = (priskv_memory_region *)result;
+    if (region->length > zctx->value_len) {
+        priskv_log_warn("ZeroCopy ACQUIRE length too large: region.len=%u, user.buf=%u", region->length, zctx->value_len);
+        zctx->cb(PRISKV_STATUS_VALUE_TOO_BIG, zctx->cbarg);
+        free(zctx);
+        return;
+    }
+    zctx->pctx->job->mm->memcpy(zctx->value, (void *)region->addr, region->length);
+    zctx->token = region->token;
+    zctx->pctx->job->last_stage = "RELEASE";
+    priskv_release_async(zctx->pctx->client, &zctx->token, (uint64_t)zctx, zc_release_cb);
+}
+
+static void zc_seal_cb(uint64_t rid, priskv_status status, void *result)
+{
+    zc_set_ctx *zctx = (zc_set_ctx *)rid;
+    zctx->cb(status, zctx->cbarg);
+    free(zctx);
+}
+
+static void zc_alloc_cb(uint64_t rid, priskv_status status, void *result)
+{
+    zc_set_ctx *zctx = (zc_set_ctx *)rid;
+    zctx->pctx->job->last_stage = "ALLOC";
+    if (status != PRISKV_STATUS_OK) {
+        priskv_log_warn("ZeroCopy ALLOC failed: status(%d) %s", status, priskv_status_str(status));
+        zctx->cb(status, zctx->cbarg);
+        free(zctx);
+        return;
+    }
+    priskv_memory_region *region = (priskv_memory_region *)result;
+    uint32_t copy_len = region->length < zctx->value_len ? region->length : zctx->value_len;
+    if (copy_len < zctx->value_len) {
+        priskv_log_warn("ZeroCopy write truncated: region.len=%u, request.len=%u, copy_len=%u",
+                        region->length, zctx->value_len, copy_len);
+    }
+    zctx->pctx->job->mm->memcpy((void *)region->addr, zctx->value, copy_len);
+    zctx->token = region->token;
+    zctx->pctx->job->last_stage = "SEAL";
+    priskv_seal_async(zctx->pctx->client, &zctx->token, (uint64_t)zctx, zc_seal_cb);
+}
+
+/* ZeroCopy DROP callback is no longer used (published keys use DELETE semantics) */
+
 static void priskv_req_cb(uint64_t request_id, priskv_status status, void *result)
 {
     priskv_req_context *ctx = (priskv_req_context *)request_id;
@@ -887,6 +986,19 @@ static void priskv_drv_get(void *ctx, const char *key, void *value, uint32_t val
                          void (*cb)(int, void *), void *cbarg)
 {
     priskv_context *priskv_ctx = ctx;
+    if (g_zero_copy) {
+        zc_get_ctx *zctx = malloc(sizeof(zc_get_ctx));
+        zctx->pctx = priskv_ctx;
+        zctx->cb = cb;
+        zctx->cbarg = cbarg;
+        zctx->value = value;
+        zctx->value_len = value_len;
+        priskv_ctx->job->last_stage = "ACQUIRE";
+        priskv_acquire_async(priskv_ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, (uint64_t)zctx,
+                             zc_acquire_cb);
+        return;
+    }
+    /* Remove duplicate ZeroCopy GET branch */
     priskv_sgl sgl;
     priskv_sgl *sgls;
     priskv_req_context *priskv_req_ctx;
@@ -914,7 +1026,7 @@ static void priskv_drv_get(void *ctx, const char *key, void *value, uint32_t val
     priskv_req_ctx->cb = cb;
     priskv_req_ctx->cbarg = cbarg;
     priskv_req_ctx->ignore_no_such_key = 0;
-
+    priskv_ctx->job->last_stage = "GET";
     priskv_get_async(priskv_ctx->client, key, sgls, nsgl, (uint64_t)priskv_req_ctx, priskv_req_cb);
 
     if (g_priskv_value_block_size && g_priskv_value_block_size < value_len) {
@@ -929,20 +1041,25 @@ typedef struct {
     void *transfer_value;
     void *value;
     uint32_t value_len;
+    priskv_memory *transfer_mem;
 } priskv_req_transfer_context;
 
 static void priskv_get_transfer_cb(int status, void *arg)
 {
     priskv_req_transfer_context *ctx = arg;
+
     job_context *job = ctx->priskv_ctx->job;
 
-    job->mm->memcpy(ctx->value, ctx->transfer_value, ctx->value_len);
+    if (status == PRISKV_STATUS_OK) {
+        job->mm->memcpy(ctx->value, ctx->transfer_value, ctx->value_len);
+    }
 
     ctx->cb(status, ctx->cbarg);
 
     free(ctx->transfer_value);
     free(ctx);
 }
+
 
 static void priskv_drv_get_transfer(void *ctx, const char *key, void *value, uint32_t value_len,
                                   void (*cb)(int, void *), void *cbarg)
@@ -960,10 +1077,23 @@ static void priskv_drv_get_transfer(void *ctx, const char *key, void *value, uin
     priskv_drv_get(priskv_ctx, key, req_ctx->transfer_value, value_len, priskv_get_transfer_cb, req_ctx);
 }
 
+
 static void priskv_drv_set(void *ctx, const char *key, void *value, uint32_t value_len,
                          void (*cb)(int, void *), void *cbarg)
 {
     priskv_context *priskv_ctx = ctx;
+    if (g_zero_copy) {
+        zc_set_ctx *zctx = malloc(sizeof(zc_set_ctx));
+        zctx->pctx = priskv_ctx;
+        zctx->cb = cb;
+        zctx->cbarg = cbarg;
+        zctx->value = value;
+        zctx->value_len = value_len;
+        priskv_ctx->job->last_stage = "ALLOC";
+        priskv_alloc_async(priskv_ctx->client, key, (uint32_t)value_len, PRISKV_KEY_MAX_TIMEOUT,
+                           (uint64_t)zctx, zc_alloc_cb);
+        return;
+    }
     priskv_sgl sgl;
     priskv_sgl *sgls;
     uint16_t nsgl;
@@ -991,7 +1121,7 @@ static void priskv_drv_set(void *ctx, const char *key, void *value, uint32_t val
     priskv_req_ctx->cb = cb;
     priskv_req_ctx->cbarg = cbarg;
     priskv_req_ctx->ignore_no_such_key = 0;
-
+    priskv_ctx->job->last_stage = "SET";
     priskv_set_async(priskv_ctx->client, key, sgls, nsgl, PRISKV_KEY_MAX_TIMEOUT, (uint64_t)priskv_req_ctx,
                    priskv_req_cb);
 
@@ -1022,20 +1152,19 @@ static void priskv_drv_set_transfer(void *ctx, const char *key, void *value, uin
     req_ctx->cbarg = cbarg;
     req_ctx->transfer_value = malloc(value_len);
     req_ctx->value_len = value_len;
-
     job->mm->memcpy(req_ctx->transfer_value, value, value_len);
-
     priskv_drv_set(ctx, key, req_ctx->transfer_value, value_len, priskv_set_transfer_cb, req_ctx);
 }
 
 static void priskv_drv_del(void *ctx, const char *key, void (*cb)(int, void *), void *cbarg)
 {
     priskv_context *priskv_ctx = ctx;
+    /* Deletion uses standard DELETE; DROP is only for unpublished ALLOC tokens */
     priskv_req_context *priskv_req_ctx = malloc(sizeof(priskv_req_context));
     priskv_req_ctx->cb = cb;
     priskv_req_ctx->cbarg = cbarg;
     priskv_req_ctx->ignore_no_such_key = 1;
-
+    priskv_ctx->job->last_stage = "DELETE";
     priskv_delete_async(priskv_ctx->client, key, (uint64_t)priskv_req_ctx, priskv_req_cb);
 }
 
@@ -1160,8 +1289,20 @@ static void job_set_error(job_context *job, const char *fmt, ...)
     assert(vsnprintf(errstr, STRING_MAX_LEN, fmt, ap) >= 0);
     va_end(ap);
 
-    strncpy(job->err_msg, errstr, STRING_MAX_LEN);
-    job->err_msg[STRING_MAX_LEN - 1] = '\0';
+    if (job->last_stage) {
+        int len = snprintf(job->err_msg, STRING_MAX_LEN, "stage=%s, ", job->last_stage);
+        if (len < 0) len = 0;
+        size_t cap = (len < (int)STRING_MAX_LEN) ? (STRING_MAX_LEN - (size_t)len) : 0;
+        if (cap > 0) {
+            strncpy(job->err_msg + len, errstr, cap);
+            job->err_msg[STRING_MAX_LEN - 1] = '\0';
+        } else {
+            job->err_msg[STRING_MAX_LEN - 1] = '\0';
+        }
+    } else {
+        strncpy(job->err_msg, errstr, STRING_MAX_LEN);
+        job->err_msg[STRING_MAX_LEN - 1] = '\0';
+    }
 
     job->state = JOB_STATE_ERROR;
 }
@@ -1824,10 +1965,11 @@ static void priskv_showhelp(void)
            "default false\n");
     printf("  --temp-reg\n\tWhether to temporarily register memory to RDMA when making a request, "
            "default false\n");
+    printf("  -Z/--zero-copy\n\tUse token-based ZeroCopy (ALLOC/SEAL/ACQUIRE/RELEASE/DROP), default false\n");
     exit(0);
 }
 
-static const char *priskv_short_opts = "hp:a:P:A:o:k:v:d:m:t:q:T:D:G:M:S:l:L:i:";
+static const char *priskv_short_opts = "hp:a:P:A:o:k:v:d:m:t:q:T:D:G:M:S:l:L:i:Z";
 static struct option priskv_long_opts[] = {
     {"rport", required_argument, 0, 'p'},
     {"raddr", required_argument, 0, 'a'},
@@ -1853,6 +1995,7 @@ static struct option priskv_long_opts[] = {
     {"priskv-value-block-size", required_argument, 0, OPTARG_PRISKV_VALUE_BLOCK_SIZE},
     {"transfer", no_argument, 0, OPTARG_TRANSFER},
     {"temp-reg", no_argument, 0, OPTARG_TEMP_REG},
+    {"zero-copy", no_argument, 0, 'Z'},
 };
 
 static int parse_range_arg(char *optarg, int64_t *min, int64_t *max)
@@ -2036,6 +2179,9 @@ static int parse_arg(int argc, char *argv[])
         case OPTARG_TEMP_REG:
             g_temp_reg = true;
             break;
+        case 'Z':
+            g_zero_copy = true;
+            break;
 
         default:
             priskv_showhelp();
@@ -2186,6 +2332,10 @@ static int benchmark_print_info(bool summary)
                raddr, rport, g_threads, job_get_op_str(g_op), g_key_min_len, g_key_max_len,
                g_value_min_len, g_value_max_len, g_iodepth, g_interval, g_driver,
                priskv_get_mem_type_str(g_mem_type));
+        printf("flags: zero-copy=%s transfer=%s temp-reg=%s\n",
+               g_zero_copy ? "true" : "false",
+               g_transfer ? "true" : "false",
+               g_temp_reg ? "true" : "false");
     } else {
         printw("PrisKV Benchmark <%s>\n", now_str);
         printw("server=[%s %d] jobs=%d op=%s\nkey-len=[%ld,%ld] value-len=[%ld,%ld] "
@@ -2193,6 +2343,10 @@ static int benchmark_print_info(bool summary)
                raddr, rport, g_threads, job_get_op_str(g_op), g_key_min_len, g_key_max_len,
                g_value_min_len, g_value_max_len, g_iodepth, g_interval, g_driver,
                priskv_get_mem_type_str(g_mem_type));
+        printw("flags: zero-copy=%s transfer=%s temp-reg=%s\n",
+               g_zero_copy ? "true" : "false",
+               g_transfer ? "true" : "false",
+               g_temp_reg ? "true" : "false");
     }
 
     return lines;
@@ -2326,7 +2480,18 @@ static void jobs_print_summary(job_context *jobs, int njob)
     int i;
 
     benchmark_print_info(true);
-    printf("Summary: success/all=%d/%d\n", jobs_success_count(jobs, njob), njob);
+    int succ = jobs_success_count(jobs, njob);
+    printf("Summary: success/all=%d/%d\n", succ, njob);
+    if (succ < njob) {
+        // Collect and print error states (one per failed job)
+        printf("Errors:\n");
+        for (i = 0; i < njob; i++) {
+            if (job_is_error(&jobs[i])) {
+                // err_msg is formatted in job_set_error as "resp status[%d]: %s"
+                printf("  job[%d]: %s\n", i, jobs[i].err_msg);
+            }
+        }
+    }
     jobs_print_headings(true);
     for (i = 0; i < njob; i++) {
         job_print_summary(jobs + i);
@@ -2436,3 +2601,4 @@ int main(int argc, char *argv[])
 
     return errjobs ? -1 : 0;
 }
+/* ZeroCopy token path context and callbacks */

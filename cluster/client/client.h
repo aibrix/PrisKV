@@ -69,6 +69,9 @@ typedef enum priskvClusterStatus {
     /* no such key */
     PRISKV_CLUSTER_STATUS_NO_SUCH_KEY,
 
+    /* no such token */
+    PRISKV_CLUSTER_STATUS_NO_SUCH_TOKEN,
+
     /* invalid SGL. the number of SGL within a command must not exceed @max_sgl */
     PRISKV_CLUSTER_STATUS_INVALID_SGL,
 
@@ -78,6 +81,15 @@ typedef enum priskvClusterStatus {
     /* key is updating */
     PRISKV_CLUSTER_STATUS_KEY_UPDATING,
 
+    /* connect to server side failed */
+    PRISKV_CLUSTER_STATUS_CONNECT_ERROR,
+
+    /* generic server side failure */
+    PRISKV_CLUSTER_STATUS_SERVER_ERROR,
+
+    /* operation not permitted (e.g., SEAL/RELEASE/DROP with wrong token) */
+    PRISKV_CLUSTER_STATUS_PERMISSION_DENIED,
+
     /* no enough memory reported by server side */
     PRISKV_CLUSTER_STATUS_NO_MEM = 0x200,
 
@@ -85,7 +97,7 @@ typedef enum priskvClusterStatus {
     PRISKV_CLUSTER_STATUS_DISCONNECTED = 0xF00,
 
     /* local RDMA error occurs */
-    PRISKV_CLUSTER_STATUS_RDMA_ERROR,
+    PRISKV_CLUSTER_STATUS_TRANSPORT_ERROR,
 
     /* does inflight requests exceed @max_inflight_command? */
     PRISKV_CLUSTER_STATUS_BUSY,
@@ -121,6 +133,9 @@ static inline const char *priskv_cluster_status_str(priskvClusterStatus status)
     case PRISKV_CLUSTER_STATUS_NO_SUCH_KEY:
         return "No such key";
 
+    case PRISKV_CLUSTER_STATUS_NO_SUCH_TOKEN:
+        return "No such token";
+
     case PRISKV_CLUSTER_STATUS_INVALID_SGL:
         return "Invalid SGL";
 
@@ -130,14 +145,23 @@ static inline const char *priskv_cluster_status_str(priskvClusterStatus status)
     case PRISKV_CLUSTER_STATUS_KEY_UPDATING:
         return "Key is updating";
 
+    case PRISKV_CLUSTER_STATUS_CONNECT_ERROR:
+        return "Connect error";
+
+    case PRISKV_CLUSTER_STATUS_SERVER_ERROR:
+        return "Server internal error";
+
+    case PRISKV_CLUSTER_STATUS_PERMISSION_DENIED:
+        return "Permission denied";
+
     case PRISKV_CLUSTER_STATUS_NO_MEM:
         return "No memory";
 
     case PRISKV_CLUSTER_STATUS_DISCONNECTED:
         return "Disconnected";
 
-    case PRISKV_CLUSTER_STATUS_RDMA_ERROR:
-        return "RDMA error";
+    case PRISKV_CLUSTER_STATUS_TRANSPORT_ERROR:
+        return "Transport error";
 
     case PRISKV_CLUSTER_STATUS_BUSY:
         return "Busy";
@@ -153,6 +177,10 @@ static inline const char *priskv_cluster_status_str(priskvClusterStatus status)
 
 typedef void (*priskvClusterCallback)(priskvClusterStatus status, uint32_t valuelen, void *cbarg);
 
+/* Zero-copy callback: return addr/length and token (for SEAL/RELEASE/DROP) */
+typedef void (*priskvClusterZeroCopyCallback)(priskvClusterStatus status, uint64_t addr_offset,
+                                              uint32_t valuelen, uint64_t token, void *cbarg);
+
 /* async APIs */
 int priskvClusterAsyncGet(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
                         uint16_t nsgl, priskvClusterCallback cb, void *cbarg);
@@ -162,14 +190,40 @@ int priskvClusterAsyncTest(priskvClusterClient *client, const char *key, priskvC
                          void *cbarg);
 int priskvClusterAsyncDelete(priskvClusterClient *client, const char *key, priskvClusterCallback cb,
                            void *cbarg);
-
+int priskvClusterAsyncAlloc(priskvClusterClient *client, const char *key, uint64_t alloc_length,
+                            uint64_t timeout, priskvClusterZeroCopyCallback cb, void *cbarg);
+int priskvClusterAsyncSeal(priskvClusterClient *client, const char *key, const uint64_t *token,
+                           priskvClusterCallback cb, void *cbarg);
+int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, uint64_t timeout,
+                              priskvClusterZeroCopyCallback cb, void *cbarg);
+int priskvClusterAsyncRelease(priskvClusterClient *client, const char *key, const uint64_t *token,
+                              priskvClusterCallback cb, void *cbarg);
+int priskvClusterAsyncDrop(priskvClusterClient *client, const char *key, const uint64_t *token,
+                           priskvClusterCallback cb, void *cbarg);
 /* sync APIs */
 priskvClusterStatus priskvClusterGet(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
                                  uint16_t nsgl, uint32_t *value_len);
 priskvClusterStatus priskvClusterSet(priskvClusterClient *client, const char *key, priskvClusterSGL *sgl,
                                  uint16_t nsgl, uint64_t timeout);
+priskvClusterStatus priskvClusterAlloc(priskvClusterClient *client, const char *key,
+                                       uint64_t alloc_length, uint64_t timeout, uint64_t *addr);
+priskvClusterStatus priskvClusterSeal(priskvClusterClient *client, const char *key,
+                                      const uint64_t *token);
+priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char *key,
+                                         uint64_t timeout, uint64_t *addr_offset,
+                                         uint32_t *valuelen);
+priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key,
+                                         const uint64_t *token);
+priskvClusterStatus priskvClusterDrop(priskvClusterClient *client, const char *key,
+                                      const uint64_t *token);
 priskvClusterStatus priskvClusterTest(priskvClusterClient *client, const char *key, uint32_t *value_len);
 priskvClusterStatus priskvClusterDelete(priskvClusterClient *client, const char *key);
 priskvClusterStatus priskvClusterKeys(priskvClusterClient *client, const char *regex,
                                   priskv_keyset **keyset);
 priskvClusterStatus priskvClusterStatusFromPriskvStatus(priskv_status status);
+
+/* Additional: zero-copy synchronous interfaces using priskv_memory_region */
+int priskvClusterAllocRegion(priskvClusterClient *client, const char *key, uint32_t alloc_length,
+                             uint64_t timeout, priskv_memory_region *region);
+int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uint64_t timeout,
+                               priskv_memory_region *region);

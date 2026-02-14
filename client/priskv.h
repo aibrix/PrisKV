@@ -98,9 +98,12 @@ typedef enum priskv_status {
 
     /* no such command */
     PRISKV_STATUS_NO_SUCH_COMMAND,
-
+    
     /* no such key */
     PRISKV_STATUS_NO_SUCH_KEY,
+    
+    /* no such token */
+    PRISKV_STATUS_NO_SUCH_TOKEN,
 
     /* invalid SGL. the number of SGL within a command must not exceed @max_sgl */
     PRISKV_STATUS_INVALID_SGL,
@@ -116,6 +119,9 @@ typedef enum priskv_status {
 
     /* generic server side failure */
     PRISKV_STATUS_SERVER_ERROR,
+
+    /* operation not permitted (e.g., SEAL/RELEASE/DROP with wrong token) */
+    PRISKV_STATUS_PERMISSION_DENIED,
 
     /* no enough memory reported by server side */
     PRISKV_STATUS_NO_MEM = 0x200,
@@ -160,6 +166,9 @@ static inline const char *priskv_status_str(priskv_status status)
     case PRISKV_STATUS_NO_SUCH_KEY:
         return "No such key";
 
+    case PRISKV_STATUS_NO_SUCH_TOKEN:
+        return "No such token";
+
     case PRISKV_STATUS_INVALID_SGL:
         return "Invalid SGL";
 
@@ -174,6 +183,9 @@ static inline const char *priskv_status_str(priskv_status status)
 
     case PRISKV_STATUS_SERVER_ERROR:
         return "Server internal error";
+
+    case PRISKV_STATUS_PERMISSION_DENIED:
+        return "Permission denied";
 
     case PRISKV_STATUS_NO_MEM:
         return "No memory";
@@ -245,6 +257,27 @@ int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t reque
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
                        priskv_generic_cb cb);
 
+/* Alloc memory for zero copy write (length supports up to 32-bit) */
+int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_length,
+                       uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
+
+/* Seal memory region alloced for write (by token pointer, reuse key field) */
+int priskv_seal_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                      priskv_generic_cb cb);
+
+/* Acquire memory region for zero copy read */
+int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
+                         uint64_t request_id, priskv_generic_cb cb);
+
+/* Release memory region (by token pointer, reuse key field) */
+int priskv_release_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                         priskv_generic_cb cb);
+
+/* Drop memory region (by token pointer, reuse key field) */
+int priskv_drop_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                      priskv_generic_cb cb);
+
+
 /* for *KEYS* command */
 typedef struct priskv_key {
     char *key;
@@ -255,6 +288,12 @@ typedef struct priskv_keyset {
     uint32_t nkey;
     priskv_key *keys;
 } priskv_keyset;
+
+typedef struct priskv_memory_region {
+    uint64_t addr;
+    uint32_t length;
+    uint64_t token;
+} priskv_memory_region;
 
 /* free keyset returned by @priskv_keys */
 void priskv_keyset_free(priskv_keyset *keyset);
@@ -283,6 +322,16 @@ int priskv_nrkeys(priskv_client *client, const char *regex, uint32_t *nkey);
 int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey);
 
 uint64_t priskv_capacity(priskv_client *client);
+
+int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, uint64_t timeout,
+                 priskv_memory_region *region);
+int priskv_seal(priskv_client *client, const uint64_t *token);
+
+int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
+                   priskv_memory_region *region);
+int priskv_release(priskv_client *client, const uint64_t *token);
+
+int priskv_drop(priskv_client *client, const uint64_t *token);
 
 /*
  *assuming max timeout means no timeout

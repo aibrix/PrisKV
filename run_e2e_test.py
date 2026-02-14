@@ -9,6 +9,8 @@ import signal
 import sys
 import traceback
 import tempfile
+import select
+
 
 server_process = None
 client_process = None
@@ -16,6 +18,7 @@ mem_file_path = None
 
 STATUS_NO_SUCH_KEY = 262
 STATUS_OK = 0
+STATUS_PERMISSION_DENIED = 269
 
 
 # iterate /sys/class/infiniband, find any usable RDMA device, and return IPv4 or IPv6 address
@@ -46,12 +49,13 @@ def find_rdma_dev():
 
 
 def parse_status(stdout: str):
-    pattern = r'.*status\((\d+)\):.*'
-    match = re.search(pattern, stdout)
-    if match:
-        return int(match.group(1))
-    else:
-        return None
+    """Parse all status(...) and return the last one to handle multi-stage outputs (e.g., acquire_get with a final RELEASE)."""
+    matches = re.findall(r'status\((\d+)\)', stdout)
+    if matches:
+        return int(matches[-1])
+    return None
+
+# Simplified: removed unused parse_token
 
 
 def check_status(stdout: str, expected_status: int) -> bool:
@@ -63,13 +67,32 @@ def check_status(stdout: str, expected_status: int) -> bool:
 
 
 def check_value(stdout: str, expected_value: str) -> bool:
-    pattern = r'.*GET(\s+)value\[\d+\]=(\d+).*'
-    match = re.search(pattern, stdout)
-    if match:
-        value = str(match.group(2))
-        return value == expected_value
-    else:
+    """Match value lines from both GET and ACQUIRE GET outputs."""
+    m = re.search(r'.*value\[\d+\]=(.*)', stdout)
+    if not m:
         return False
+    value = m.group(1).strip()
+    return value == expected_value
+
+def parse_named_status(stdout: str, name: str) -> int:
+    m = re.findall(rf'{name}[^\n]*status\((\d+)\)', stdout)
+    if not m:
+        return None
+    return int(m[-1])
+
+def check_named_status(stdout: str, name: str, expected_status: int) -> bool:
+    s = parse_named_status(stdout, name)
+    return s is not None and s == expected_status
+
+def run_client_commands(ip, port, commands) -> str:
+    """Execute multiple commands within the same client connection and return aggregated output."""
+    create_client(ip, port)
+    try:
+        input_data = "\n".join(list(commands) + ["exit"]) + "\n"
+        stdout = client_process.communicate(input_data)[0]
+        return stdout
+    finally:
+        destroy_client()
 
 
 def signal_handler(signum, frame):
@@ -170,7 +193,8 @@ def destroy_client():
 
 def do_test(ip, port, cmd, status, value: str = None):
     create_client(ip, port)
-    stdout = client_process.communicate(cmd)[0]
+    # Append newline and 'exit' to flush all output and exit cleanly
+    stdout = client_process.communicate(cmd + "\nexit\n")[0]
     if not check_status(stdout, status) or (value is not None and
                                             not check_value(stdout, value)):
         print(stdout)
@@ -204,6 +228,10 @@ def priskv_e2e_test():
 
     print("---- E2E TEST (UCX SM) ----")
     os.environ["UCX_TLS"] = "sm"
+    priskv_e2e_test_run(ucx_wireup_ip, port)
+
+    print("---- E2E TEST (UCX ) ----")
+    os.environ["PRISKV_USE_SHM"] = "y"
     priskv_e2e_test_run(ucx_wireup_ip, port)
 
 def priskv_e2e_test_run(ip, port):
@@ -322,6 +350,52 @@ def priskv_e2e_test_run(ip, port):
             return ret
 
         print("---- E2E TEST: get keys from empty KV [OK] ----")
+
+        # ===== ZeroCopy end-to-end, gated by PRISKV_USE_SHM =====
+        if os.environ.get("PRISKV_USE_SHM", 'n') == 'y':
+            zkey = str(789)
+            zval = str(42)
+            # Composite commands: publish (ALLOC+SEAL) and read (ACQUIRE+RELEASE)
+            ret = do_test(ip, port, f"alloc_set {zkey} {zval}", STATUS_OK)
+            if ret != 0:
+                print("---- E2E TEST: alloc_set failed [FAILED] ----")
+                return ret
+            ret = do_test(ip, port, f"acquire_get {zkey}", STATUS_OK, zval)
+            if ret != 0:
+                print("---- E2E TEST: acquire_get failed [FAILED] ----")
+                return ret
+            print("---- E2E TEST: ZeroCopy alloc_set + acquire_get [OK] ----")
+
+            # Atomic commands: alloc/seal/acquire/release
+            stdout = run_client_commands(ip, port, [
+                f"alloc {zkey}_atom 16",
+                "seal last",
+                f"acquire {zkey}_atom",
+                "release last",
+            ])
+            if not (check_named_status(stdout, "ALLOC", STATUS_OK) and
+                    check_named_status(stdout, "SEAL", STATUS_OK) and
+                    check_named_status(stdout, "ACQUIRE", STATUS_OK) and
+                    check_named_status(stdout, "RELEASE", STATUS_OK)):
+                print(stdout)
+                print("---- E2E TEST: atomic alloc+seal+acquire+release [FAILED] ----")
+                return 1
+            print("---- E2E TEST: atomic alloc+seal+acquire+release [OK] ----")
+
+            # Atomic: drop unpublished token and subsequent acquire should be NO_SUCH_KEY
+            stdout = run_client_commands(ip, port, [
+                f"alloc {zkey}_unpub 16",
+                "drop last",
+                f"acquire {zkey}_unpub",
+            ])
+            if not (check_named_status(stdout, "DROP", STATUS_OK) and
+                    check_named_status(stdout, "ACQUIRE", STATUS_NO_SUCH_KEY)):
+                print(stdout)
+                print("---- E2E TEST: atomic drop(unpublished)+acquire [FAILED] ----")
+                return 1
+            print("---- E2E TEST: atomic drop(unpublished)+acquire [OK] ----")
+        else:
+            print("---- E2E TEST: skip ZeroCopy (PRISKV_USE_SHM!=y) ----")
 
         return 0
     except Exception as e:

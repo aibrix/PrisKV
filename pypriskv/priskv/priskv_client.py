@@ -25,7 +25,6 @@
 import priskv._priskv as client
 from typing import List, Tuple, Optional
 
-
 class PriskvClient:
     '''PriskvClient:
 
@@ -65,6 +64,38 @@ class PriskvClient:
             nsgl: int = 1,
             timeout: int = client.PRISKV_KEY_MAX_TIMEOUT) -> int:
         return client.set(self.conn, key, sgl, nsgl, timeout)
+    
+    def alloc(self,
+            key: str,
+            alloc_length: int,
+            timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
+            ) -> Tuple[int, client.MemoryRegion]:
+        status, region  = client.alloc(self.conn, key, alloc_length, timeout)
+        return status, region
+    
+    def seal(self,
+            key: str,
+            region: client.MemoryRegion) -> int:
+        return client.seal(self.conn, key, region)
+
+    def acquire(self,
+            key: str,
+            timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
+            ) -> Tuple[int, client.MemoryRegion]:
+        status, region = client.acquire(self.conn, key, timeout)
+        return status, region
+    
+    def release(self,
+            key: str,
+            region: client.MemoryRegion) -> int:
+        return client.release(self.conn, key, region)
+
+    def drop(self,
+            key: str,
+            region: client.MemoryRegion) -> int:
+        return client.drop(self.conn, key, region)
+
+
 
     def setstr(self,
                key: str,

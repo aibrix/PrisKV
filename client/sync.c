@@ -135,6 +135,90 @@ int priskv_flush(priskv_client *client, const char *regex, uint32_t *nkey)
     return req_sync.status;
 }
 
+typedef struct priskv_transport_zero_copy_req_sync {
+    priskv_status status;
+    bool done;
+    uint64_t addr;
+    uint32_t value_length;
+    uint64_t token;
+} priskv_transport_zero_copy_req_sync;
+
+static void priskv_zero_copy_req_sync_cb(uint64_t request_id, priskv_status status, void *result)
+{
+    priskv_transport_zero_copy_req_sync *req_sync =
+        (priskv_transport_zero_copy_req_sync *)request_id;
+    uint64_t addr = result ? ((priskv_memory_region *)result)->addr : 0;
+    uint32_t value_length = result ? ((priskv_memory_region *)result)->length : 0;
+    uint64_t token = result ? ((priskv_memory_region *)result)->token : 0;
+
+    priskv_log_debug("priskv_zero_copy_req_sync_cb: callback request_id 0x%lx, status: %s[0x%x], "
+                     "addr: 0x%lx, length %d, token: %lx \n",
+                     request_id, priskv_resp_status_str(status), status, addr, value_length, token);
+    req_sync->status = status;
+    req_sync->addr = addr;
+    req_sync->value_length = value_length;
+    req_sync->token = token;
+    req_sync->done = true;
+}
+
+int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, uint64_t timeout,
+                 priskv_memory_region *region)
+{
+    priskv_transport_zero_copy_req_sync req_sync = {.status = 0xffff, .done = false};
+    priskv_alloc_async(client, key, alloc_length, timeout, (uint64_t)&req_sync,
+                       priskv_zero_copy_req_sync_cb);
+
+    priskv_sync_wait(client, &req_sync.done);
+    if (req_sync.status == PRISKV_STATUS_OK && region) {
+        region->addr = req_sync.addr;
+        region->length = req_sync.value_length;
+        region->token = req_sync.token;
+    }
+    return req_sync.status;
+}
+
+int priskv_seal(priskv_client *client, const uint64_t *token)
+{
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
+    priskv_seal_async(client, token, (uint64_t)&req_sync, priskv_common_sync_cb);
+
+    priskv_sync_wait(client, &req_sync.done);
+    return req_sync.status;
+}
+
+int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
+                   priskv_memory_region *region)
+{
+    priskv_transport_zero_copy_req_sync req_sync = {.status = 0xffff, .done = false};
+    priskv_acquire_async(client, key, timeout, (uint64_t)&req_sync, priskv_zero_copy_req_sync_cb);
+
+    priskv_sync_wait(client, &req_sync.done);
+    if (req_sync.status == PRISKV_STATUS_OK && region) {
+        region->addr = req_sync.addr;
+        region->length = req_sync.value_length;
+        region->token = req_sync.token;
+    }
+    return req_sync.status;
+}
+
+int priskv_release(priskv_client *client, const uint64_t *token)
+{
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
+    priskv_release_async(client, token, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+
+    return req_sync.status;
+}
+
+int priskv_drop(priskv_client *client, const uint64_t *token)
+{
+    priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
+    priskv_drop_async(client, token, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_sync_wait(client, &req_sync.done);
+
+    return req_sync.status;
+}
+
 typedef struct priskv_transport_keys_sync {
     priskv_status status;
     bool done;

@@ -135,6 +135,7 @@ typedef struct {
     priskv_client *client;
     void *buf;
     priskv_memory *priskvmem;
+    uint64_t last_token;
 } client_context;
 
 typedef struct {
@@ -149,7 +150,7 @@ static void help_handler(client_context *ctx, char *args)
     print_cmd_help();
 }
 
-static void set_handler(client_context *ctx, char *args)
+static void set_handler_base(client_context *ctx, char *args, bool alloc)
 {
     char *key, *value, *opt, *opt_val, *str_end;
     uint64_t expire_time_ms = 0;
@@ -206,22 +207,51 @@ static void set_handler(client_context *ctx, char *args)
 
     valuelen = strlen(value) + 1;
 
-    memcpy(ctx->buf, value, valuelen);
+    if (alloc) {
+        priskv_memory_region region = {0};
+        status = priskv_alloc(ctx->client, key, (uint32_t)valuelen, expire_time_ms, &region);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to ALLOC, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("ALLOC_SET status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
+               priskv_status_str(status), (void *)region.addr, region.length, region.token);
+        memcpy((void *)region.addr, value, (size_t)region.length);
+        status = priskv_seal(ctx->client, &region.token);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to SEAL, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("ALLOC_SET status(%d): %s\n", status, priskv_status_str(status));
+    } else {
+        memcpy(ctx->buf, value, valuelen);
 
-    sgl.iova = (uint64_t)ctx->buf;
-    sgl.length = (uint32_t)valuelen;
-    sgl.mem = ctx->priskvmem;
+        sgl.iova = (uint64_t)ctx->buf;
+        sgl.length = (uint32_t)valuelen;
+        sgl.mem = ctx->priskvmem;
 
-    printf("SET key=%s, value[%ld]=%s, expire_time_ms=%lu\n", key, valuelen, value, expire_time_ms);
-    status = priskv_set(ctx->client, key, &sgl, 1, expire_time_ms);
-    if (status != PRISKV_STATUS_OK) {
-        printf("Failed to SET, status(%d): %s\n", status, priskv_status_str(status));
-        return;
+        printf("SET key=%s, value[%ld]=%s, expire_time_ms=%lu\n", key, valuelen, value,
+               expire_time_ms);
+        status = priskv_set(ctx->client, key, &sgl, 1, expire_time_ms);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to SET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        printf("SET status(%d): %s\n", status, priskv_status_str(status));
     }
-    printf("SET status(%d): %s\n", status, priskv_status_str(status));
 }
 
-static void get_handler(client_context *ctx, char *args)
+static void set_handler(client_context *ctx, char *args)
+{
+    set_handler_base(ctx, args, false);
+}
+
+static void alloc_set_handler(client_context *ctx, char *args)
+{
+    set_handler_base(ctx, args, true);
+}
+
+static void get_handler_base(client_context *ctx, char *args, bool acquire)
 {
     char *key;
     uint32_t valuelen;
@@ -236,21 +266,219 @@ static void get_handler(client_context *ctx, char *args)
 
     memset(ctx->buf, 0x00, VALUE_MAX_LEN);
 
-    sgl.iova = (uint64_t)ctx->buf;
-    sgl.length = VALUE_MAX_LEN;
-    sgl.mem = ctx->priskvmem;
+    if (acquire) {
+        priskv_memory_region region = {0};
+        printf("ACQUIRE key=%s\n", key);
+        status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, &region);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+        memcpy(ctx->buf, (void *)region.addr, region.length);
+        ((char *)ctx->buf)[region.length] = '\0';
+        printf("ACQUIRE GET status(%d): %s\n", status, priskv_status_str(status));
+        printf("ACQUIRE GET value[%u]=%s\n", region.length, (char *)ctx->buf);
 
-    printf("GET key=%s\n", key);
-    status = priskv_get(ctx->client, key, &sgl, 1, &valuelen);
-    if (status != PRISKV_STATUS_OK) {
-        printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+        status = priskv_release(ctx->client, &region.token);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to RELEASE, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+    } else {
+        sgl.iova = (uint64_t)ctx->buf;
+        sgl.length = VALUE_MAX_LEN;
+        sgl.mem = ctx->priskvmem;
+
+        printf("GET key=%s\n", key);
+        status = priskv_get(ctx->client, key, &sgl, 1, &valuelen);
+        if (status != PRISKV_STATUS_OK) {
+            printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
+            return;
+        }
+
+        ((char *)ctx->buf)[valuelen] = '\0';
+        printf("GET status(%d): %s\n", status, priskv_status_str(status));
+        printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
+    }
+}
+
+static void get_handler(client_context *ctx, char *args)
+{
+    get_handler_base(ctx, args, false /* acquire */);
+}
+
+static void acquire_get_handler(client_context *ctx, char *args)
+{
+    get_handler_base(ctx, args, true /* acquire */);
+}
+
+/* ===== ZeroCopy atomic commands: alloc/seal/acquire/release/drop ===== */
+static void alloc_only_handler(client_context *ctx, char *args)
+{
+    char *key, *opt, *opt_val, *str_end;
+    uint64_t expire_time_ms = 0;
+    uint64_t alloc_len = 0;
+    priskv_status status;
+
+    key = strtok_r(args, " ", &args);
+    if (!key) {
+        printf("%s\n", invalid_args_msg);
         return;
     }
 
-    ((char *)ctx->buf)[valuelen] = '\0';
-    printf("GET status(%d): %s\n", status, priskv_status_str(status));
-    printf("GET value[%u]=%s\n", valuelen, (char *)ctx->buf);
+    /* The next argument is length in bytes */
+    opt_val = strtok_r(args, " ", &args);
+    if (!opt_val) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+    errno = 0;
+    alloc_len = strtoull(opt_val, &str_end, 10);
+    if (errno > 0 || str_end == opt_val || *str_end != '\0' || alloc_len == 0) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+
+    while (args && strlen(args) > 0) {
+        opt = strtok_r(args, " ", &args);
+        if (!strcmp(opt, "EX") || !strcmp(opt, "PX")) {
+            if (expire_time_ms > 0) {
+                printf("%s\n", invalid_args_msg);
+                return;
+            }
+            opt_val = strtok_r(args, " ", &args);
+            if (!opt_val || !strlen(opt_val) || opt_val[0] == '-') {
+                printf("%s\n", invalid_args_msg);
+                return;
+            }
+            errno = 0;
+            expire_time_ms = strtoull(opt_val, &str_end, 10);
+            if (errno > 0 || str_end == opt_val || *str_end != '\0' || expire_time_ms == 0) {
+                printf("%s\n", invalid_args_msg);
+                return;
+            }
+            if (!strcmp(opt, "EX")) {
+                expire_time_ms *= 1000;
+            }
+        } else {
+            printf("%s\n", invalid_args_msg);
+            return;
+        }
+    }
+
+    if (expire_time_ms == 0) {
+        expire_time_ms = PRISKV_KEY_MAX_TIMEOUT;
+    }
+
+    priskv_memory_region region = (priskv_memory_region){0};
+    status = priskv_alloc(ctx->client, key, (uint32_t)alloc_len, expire_time_ms, &region);
+    printf("ALLOC status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
+           priskv_status_str(status), (void *)region.addr, region.length, region.token);
+    if (status == PRISKV_STATUS_OK) {
+        ctx->last_token = region.token;
+    }
 }
+
+static void seal_token_handler(client_context *ctx, char *args)
+{
+    char *tokstr, *str_end;
+    uint64_t token = 0;
+    priskv_status status;
+
+    tokstr = strtok_r(args, " ", &args);
+    if (!tokstr) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+    if (!strcmp(tokstr, "last")) {
+        token = ctx->last_token;
+    } else {
+        errno = 0;
+        token = strtoull(tokstr, &str_end, 0); /* Support decimal or 0x-prefixed hex */
+        if (errno > 0 || str_end == tokstr || *str_end != '\0') {
+            printf("%s\n", invalid_args_msg);
+            return;
+        }
+    }
+    status = priskv_seal(ctx->client, &token);
+    printf("SEAL status(%d): %s\n", status, priskv_status_str(status));
+}
+
+static void acquire_only_handler(client_context *ctx, char *args)
+{
+    char *key;
+    priskv_status status;
+    priskv_memory_region region = {0};
+
+    key = strtok_r(args, " ", &args);
+    if (!key) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+
+    printf("ACQUIRE key=%s\n", key);
+    status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, &region);
+    printf("ACQUIRE status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
+           priskv_status_str(status), (void *)region.addr, region.length, region.token);
+    if (status == PRISKV_STATUS_OK) {
+        size_t copy_len = region.length < VALUE_MAX_LEN ? region.length : VALUE_MAX_LEN - 1;
+        memcpy(ctx->buf, (void *)region.addr, copy_len);
+        ((char *)ctx->buf)[copy_len] = '\0';
+        printf("ACQUIRE value[%zu]=%s\n", copy_len, (char *)ctx->buf);
+        ctx->last_token = region.token;
+    }
+}
+
+static void release_token_handler(client_context *ctx, char *args)
+{
+    char *tokstr, *str_end;
+    uint64_t token = 0;
+    priskv_status status;
+
+    tokstr = strtok_r(args, " ", &args);
+    if (!tokstr) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+    if (!strcmp(tokstr, "last")) {
+        token = ctx->last_token;
+    } else {
+        errno = 0;
+        token = strtoull(tokstr, &str_end, 0);
+        if (errno > 0 || str_end == tokstr || *str_end != '\0') {
+            printf("%s\n", invalid_args_msg);
+            return;
+        }
+    }
+    status = priskv_release(ctx->client, &token);
+    printf("RELEASE status(%d): %s\n", status, priskv_status_str(status));
+}
+
+static void drop_token_handler(client_context *ctx, char *args)
+{
+    char *tokstr, *str_end;
+    uint64_t token = 0;
+    priskv_status status;
+
+    tokstr = strtok_r(args, " ", &args);
+    if (!tokstr) {
+        printf("%s\n", invalid_args_msg);
+        return;
+    }
+    if (!strcmp(tokstr, "last")) {
+        token = ctx->last_token;
+    } else {
+        errno = 0;
+        token = strtoull(tokstr, &str_end, 0);
+        if (errno > 0 || str_end == tokstr || *str_end != '\0') {
+            printf("%s\n", invalid_args_msg);
+            return;
+        }
+    }
+    status = priskv_drop(ctx->client, &token);
+    printf("DROP status(%d): %s\n", status, priskv_status_str(status));
+}
+
 
 static void test_handler(client_context *ctx, char *args)
 {
@@ -418,8 +646,18 @@ static void exit_handler(client_context *ctx, char *args)
 
 static priskv_command commands[] = {
     {"help", help_handler, "help\t\t\t\t\t\tprint this help\n"},
-    {"set", set_handler, "set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
+    {"set", set_handler,
+     "set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
+    {"alloc_set", alloc_set_handler,
+     "alloc set KEY VALUE [ EX seconds | PX milliseconds ]\tset key:value to priskv\n"},
     {"get", get_handler, "get KEY\t\t\t\t\t\tget key:value from priskv\n"},
+    {"acquire_get", acquire_get_handler, "acquire get KEY\t\t\t\t\t\tget key:value from priskv\n"},
+    {"alloc", alloc_only_handler,
+     "alloc KEY BYTES [ EX seconds | PX milliseconds ]\t\tallocate region and print token\n"},
+    {"seal", seal_token_handler, "seal TOKEN|last\t\t\t\t\tseal previously alloc'ed token\n"},
+    {"acquire", acquire_only_handler, "acquire KEY\t\t\t\t\t\tacquire region and print token\n"},
+    {"release", release_token_handler, "release TOKEN|last\t\t\t\t\trelease previously acquired token\n"},
+    {"drop", drop_token_handler, "drop TOKEN|last\t\t\t\t\tDrop unpublished ALLOC token\n"},
     {"test", test_handler, "test KEY\t\t\t\t\t\ttest if the key exists in priskv\n"},
     {"delete", delete_handler, "delete KEY\t\t\t\t\t\tdelete the key from priskv\n"},
     {"expire", expire_handler, "expire KEY seconds\t\t\t\t\tset expire time for key\n"},

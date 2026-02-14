@@ -45,7 +45,7 @@ typedef struct priskv_transport_conn priskv_transport_conn;
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
-                    uint64_t value_blocks);
+                    uint64_t value_blocks, void *mf_ctx);
 
 void priskv_destroy_kv(void *kv);
 
@@ -65,6 +65,12 @@ uint64_t priskv_get_value_blocks_inuse(void *kv);
 
 void priskv_update_valuelen(void *arg, uint32_t valuelen);
 
+int priskv_get_key_base(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
+                        void **_keynode, bool for_seal);
+
+int priskv_get_key_for_seal(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                            uint32_t *valuelen, void **_keynode);
+
 int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
                  void **_keynode);
 void priskv_get_key_end(void *arg);
@@ -72,6 +78,8 @@ void priskv_get_key_end(void *arg);
 int priskv_set_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t valuelen,
                  uint64_t timeout, void **_keynode);
 void priskv_set_key_end(void *arg);
+
+int priskv_value_addr_offset(void *_kv, uint8_t *val, uint64_t *addr_offset);
 
 int priskv_delete_key(void *kv, uint8_t *key, uint16_t keylen);
 
@@ -144,6 +152,14 @@ struct priskv_tiering_req *priskv_tiering_req_new(priskv_transport_conn *conn, p
 // tiering concurrency control
 bool priskv_key_serialize_enter(struct priskv_tiering_req *treq);
 void priskv_key_serialize_exit(struct priskv_tiering_req *completed_req);
+
+/* Zero-Copy / Private-Write support:
+ * ALLOC / SEAL / ACQUIRE / RELEASE / DROP semantics implemented at KV layer
+ */
+int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                              uint32_t alloc_length, uint64_t timeout, void **_keynode);
+int priskv_publish_node(void *_kv, void *_keynode);
+int priskv_drop_node(void *_kv, void *_keynode);
 
 #if defined(__cplusplus)
 }

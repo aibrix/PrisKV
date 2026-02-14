@@ -6,6 +6,7 @@ TEST_SLAB = test-slab
 TEST_SLAB_MT = test-slab-mt
 TEST_KV = test-kv
 TEST_KV_MT = test-kv-mt
+TEST_TRANSPORT = test-transport
 TEST_MEMORY = test-memory
 TEST_ACL = test-acl
 TEST_KV_EXPIRE_ROUTINE = test-kv-expire-routine
@@ -31,10 +32,10 @@ ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
 CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
-.PHONY: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
+.PHONY: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
 OBJS = ../memory.o ../kv.o ../slab.o ../crc.o ../acl.o
 
-all: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
+all: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
 
 $(TEST_BUDDY): $(OBJS)
 	$(CC) test_buddy.c ../buddy.c $(CFLAGS) -o $(TEST_BUDDY)
@@ -64,6 +65,14 @@ $(TEST_KV_MT):
 	@echo "UCX not available, skip $(TEST_KV_MT)"
 endif
 
+ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
+$(TEST_TRANSPORT): $(OBJS)
+	$(CC) test_transport.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../../lib/config.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_TRANSPORT) -lmount -lrdmacm -libverbs $(UCX_LIBS)
+else
+$(TEST_TRANSPORT):
+	@echo "UCX not available, skip $(TEST_TRANSPORT)"
+endif
+
 $(TEST_MEMORY): $(OBJS)
 	$(CC) test_memory.c ../memory.c ../../lib/log.c ../../lib/config.c $(CFLAGS) $(UCX_CFLAGS) $(UCX_LIBS) -lmount -o $(TEST_MEMORY)
 
@@ -81,13 +90,14 @@ endif
 $(TEST_BE_REDIS):
 	$(CC) test_be_redis.c ../../lib/log.c ../../lib/event.c ../../lib/workqueue.c ../../lib/threads.c ../backend/backend.c ../backend/be_redis.c $(CFLAGS) -o $(TEST_BE_REDIS) -levent -lhiredis
 
-valgrind: $(TEST_BUDDY) $(TEST_BUDDY_MT) $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE)
+valgrind: $(TEST_BUDDY) $(TEST_BUDDY_MT) $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_BUDDY)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_BUDDY_MT)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_SLAB)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_SLAB_MT)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_KV)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_KV_MT)
+	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_TRANSPORT)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_MEMORY)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_ACL)
 	valgrind -s --track-origins=yes --show-possibly-lost=no --leak-check=full ./$(TEST_KV_EXPIRE_ROUTINE)
@@ -97,7 +107,7 @@ rebuild: clean
 
 clean:
 	rm -f *.o *.d
-	rm -f $(TEST_BUDDY) $(TEST_BUDDY_MT) $(TEST_SLAB) $(TEST_KV) $(TST_KV_MT) $(TEST_SLAB_MT) $(TEST_MEMORY) $(TEST_KV_MT) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE)
+	rm -f $(TEST_BUDDY) $(TEST_BUDDY_MT) $(TEST_SLAB) $(TEST_KV) $(TST_KV_MT) $(TEST_SLAB_MT) $(TEST_MEMORY) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE)
 
 format:
 	$(FMT) -i *.c

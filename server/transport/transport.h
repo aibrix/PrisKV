@@ -83,6 +83,18 @@ typedef struct priskv_transport_mem {
     priskv_transport_memh memh;
 } priskv_transport_mem;
 
+typedef enum priskv_token_type {
+    PRISKV_TOKEN_TYPE_ALLOC,
+    PRISKV_TOKEN_TYPE_ACQUIRE,
+} priskv_token_type;
+
+typedef struct priskv_token_entry {
+    uint64_t token;
+    void *keynode;
+    priskv_token_type type;
+    UT_hash_handle hh;
+} priskv_token_entry;
+
 typedef enum priskv_transport_mem_type {
     PRISKV_TRANSPORT_MEM_REQ,
     PRISKV_TRANSPORT_MEM_RESP,
@@ -138,6 +150,8 @@ typedef struct priskv_transport_conn {
     void *kv;
     uint8_t *value_base;
     priskv_transport_mem rmem[PRISKV_TRANSPORT_MEM_MAX];
+    uint64_t next_token;
+    priskv_token_entry *token_map;
 } priskv_transport_conn;
 
 typedef struct priskv_transport_rw_work {
@@ -187,7 +201,8 @@ typedef struct priskv_transport_driver {
 
     // req/resp
     int (*send_response)(priskv_transport_conn *conn, uint64_t request_id,
-                         priskv_resp_status status, uint32_t length);
+                         priskv_resp_status status, uint32_t length, uint64_t addr_offset,
+                         uint64_t token);
     int (*rw_req)(priskv_transport_conn *conn, priskv_request *req, priskv_transport_memh *memh,
                   uint8_t *val, uint32_t valuelen, bool set, void (*cb)(void *), void *cbarg,
                   bool defer_resp, priskv_transport_rw_work **work_out);
@@ -204,6 +219,8 @@ typedef struct priskv_transport_driver {
 
     void (*close_client)(priskv_transport_conn *client);
 } priskv_transport_driver;
+
+extern priskv_transport_driver *g_transport_driver;
 
 /**
  * @brief Listen on the specified addresses and port.
@@ -260,10 +277,13 @@ void priskv_transport_free_listeners(priskv_transport_listener *listeners, int n
  * @param request_id The request ID.
  * @param status The response status.
  * @param length The response length.
+ * @param addr_offset The response addr_offset.
+ * @param token The response token.
  * @return int 0 on success, others on error.
  */
 int priskv_transport_send_response(priskv_transport_conn *conn, uint64_t request_id,
-                                   priskv_resp_status status, uint32_t length);
+                                   priskv_resp_status status, uint32_t length, uint64_t addr_offset,
+                                   uint64_t token);
 
 /**
  * @brief Submit a read or write request to the transport driver.
@@ -324,6 +344,13 @@ void priskv_transport_mark_client_closed(priskv_transport_conn *client);
  * @param listener The transport listener.
  */
 void priskv_transport_close_disconnected(priskv_transport_conn *listener);
+
+uint64_t priskv_transport_token_add(priskv_transport_conn *conn, void *keynode,
+                                    priskv_token_type type);
+void *priskv_transport_token_find(priskv_transport_conn *conn, uint64_t token,
+                                  priskv_token_type *type);
+void priskv_transport_token_del(priskv_transport_conn *conn, uint64_t token);
+void priskv_transport_token_cleanup(priskv_transport_conn *conn);
 
 #if defined(__cplusplus)
 }

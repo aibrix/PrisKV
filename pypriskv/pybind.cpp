@@ -28,6 +28,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <vector>
+#include <tuple>
 
 extern "C" {
     #include "../cluster/client/client.h"
@@ -126,6 +127,26 @@ int priskv_get_wrapper(uintptr_t client, std::string key,
     sgl.length = sgl_wrapper->length;
     sgl.mem = (priskvClusterMemory *)sgl_wrapper->mem;
     return priskvClusterGet((priskvClusterClient *)client, key.c_str(), &sgl, nsgl, valuelen);
+}
+
+std::tuple<int, uint64_t> priskv_alloc_wrapper(uintptr_t client, std::string key, uint32_t valuelen,
+                                               uint64_t timeout)
+{
+    uint64_t addr_offset = 0;
+    int ret = priskvClusterAlloc((priskvClusterClient *)client, key.c_str(), valuelen, timeout,
+                                 &addr_offset);
+    return {ret, addr_offset};
+}
+
+std::tuple<int, uint64_t, uint32_t> priskv_acquire_wrapper(uintptr_t client, std::string key,
+                                                           uint64_t timeout)
+{
+
+    uint64_t addr_offset = 0;
+    uint32_t value_length = 0;
+    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), timeout,
+                                   &addr_offset, &value_length);
+    return {ret, addr_offset, value_length};
 }
 
 std::string priskv_getstr_wrapper(uintptr_t client, std::string key)
@@ -249,6 +270,20 @@ PYBIND11_MODULE(_priskv_client, m)
 {
     m.attr("PRISKV_KEY_MAX_TIMEOUT") = PRISKV_KEY_MAX_TIMEOUT;
 
+    // 仅导出枚举类型 PRISKV_STATUS（不再导出顶级常量），保持类型化访问：
+    // 使用方式：priskv.PRISKV_STATUS.PRISKV_STATUS_OK 等
+    py::enum_<priskv_status>(m, "PRISKV_STATUS")
+        .value("PRISKV_STATUS_OK", PRISKV_STATUS_OK)
+        .value("PRISKV_STATUS_NO_SUCH_KEY", PRISKV_STATUS_NO_SUCH_KEY)
+        .value("PRISKV_STATUS_PERMISSION_DENIED", PRISKV_STATUS_PERMISSION_DENIED)
+        .value("PRISKV_STATUS_NO_SUCH_TOKEN", PRISKV_STATUS_NO_SUCH_TOKEN);
+
+    pybind11::class_<priskv_memory_region>(m, "MemoryRegion", py::module_local())
+        .def(pybind11::init<>())
+        .def_readwrite("addr", &priskv_memory_region::addr)
+        .def_readwrite("length", &priskv_memory_region::length)
+        .def_readwrite("token", &priskv_memory_region::token);
+
     pybind11::class_<priskv_sgl_wrapper>(m, "SGL", py::module_local())
         .def(pybind11::init<>())
         .def(pybind11::init<uint64_t, uint32_t, uintptr_t>())
@@ -261,6 +296,45 @@ PYBIND11_MODULE(_priskv_client, m)
     m.def("reg_memory", &priskv_reg_memory_wrapper, "A function to register memory.");
     m.def("dereg_memory", &priskv_dereg_memory_wrapper, "A function to dereg memory.");
     m.def("set", &priskv_set_wrapper, "A function to set key-val.");
+    m.def(
+        "alloc",
+        [](uintptr_t client, std::string key, uint32_t valuelen, uint64_t timeout) {
+            priskv_memory_region region {0};
+            int ret = priskvClusterAllocRegion((priskvClusterClient *)client, key.c_str(), valuelen,
+                                               timeout, &region);
+            return py::make_tuple(ret, region);
+        },
+        "A function to alloc memory region for val.");
+
+    m.def(
+        "seal",
+        [](uintptr_t client, std::string key, const priskv_memory_region &region) {
+            return (int)priskvClusterSeal((priskvClusterClient *)client, key.c_str(), &region.token);
+        },
+        "A function to seal memory region of val.");
+
+    m.def(
+        "acquire",
+        [](uintptr_t client, std::string key, uint64_t timeout) {
+            priskv_memory_region region {0};
+            int ret = priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(),
+                                                 timeout, &region);
+            return py::make_tuple(ret, region);
+        },
+        "A function to acquire memory region for read.");
+
+    m.def(
+        "release",
+        [](uintptr_t client, std::string key, const priskv_memory_region &region) {
+            return (int)priskvClusterRelease((priskvClusterClient *)client, key.c_str(), &region.token);
+        },
+        "A function to release memory region of read.");
+    m.def(
+        "drop",
+        [](uintptr_t client, std::string key, const priskv_memory_region &region) {
+            return (int)priskvClusterDrop((priskvClusterClient *)client, key.c_str(), &region.token);
+        },
+        "A function to drop memory region by token.");
     m.def("setstr", &priskv_setstr_wrapper, "A function to set key-strval.");
     m.def("getstr", &priskv_getstr_wrapper, "A function to get key-strval.");
     m.def("get", &priskv_get_wrapper, "A function to get key-val.");

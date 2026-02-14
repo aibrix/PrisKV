@@ -954,7 +954,8 @@ static void priskv_ucx_send_response_cb(ucs_status_t status, void *arg)
 }
 
 static int priskv_ucx_send_response(priskv_transport_conn *conn, uint64_t request_id,
-                                    priskv_resp_status status, uint32_t length)
+                                    priskv_resp_status status, uint32_t length,
+                                    uint64_t addr_offset, uint64_t token)
 {
     priskv_transport_mem *rmem = &conn->rmem[PRISKV_TRANSPORT_MEM_RESP];
     priskv_response *resp;
@@ -969,6 +970,8 @@ static int priskv_ucx_send_response(priskv_transport_conn *conn, uint64_t reques
     resp->request_id = request_id; /* be64 */
     resp->status = htobe16(status);
     resp->length = htobe32(length);
+    resp->addr_offset = htobe64(addr_offset);
+    resp->token = htobe64(token);
 
     priskv_ucx_conn_aux *conn_resp = malloc(sizeof(priskv_ucx_conn_aux));
     if (ucs_unlikely(conn_resp == NULL)) {

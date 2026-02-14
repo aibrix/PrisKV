@@ -98,6 +98,7 @@ typedef struct priskv_kv {
     uint64_t shm_len;
     uint32_t expire_routine_interval; /* interval to run expire routine */
     priskv_expire_routine_statics expire_routine_statics;
+    void *mf_ctx;
 } priskv_kv;
 
 static void priskv_lru_access(priskv_key *keynode, bool is_in_list)
@@ -159,7 +160,7 @@ static inline uint32_t calculate_hash_bucket_count(uint32_t max_keys)
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
-                    uint64_t value_blocks)
+                    uint64_t value_blocks, void *mf_ctx)
 {
     priskv_kv *kv;
     uint32_t bucket_count;
@@ -212,6 +213,8 @@ void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t
     kv->shm_len = shm_len;
     kv->value_buddy = priskv_buddy_create(value_base, value_blocks, value_block_size);
     assert(kv->value_base == priskv_buddy_base(kv->value_buddy));
+
+    kv->mf_ctx = mf_ctx;
 
     priskv_log_notice("KV: max_key %d, max_key_length %d, value_block_size %d, value_blocks %ld\n",
                     max_keys, max_key_length, value_block_size, value_blocks);
@@ -376,8 +379,20 @@ static void __priskv_del_key(priskv_kv *kv, priskv_key *keynode)
     priskv_keynode_deref(keynode);
 }
 
+int priskv_get_key_for_seal(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                            uint32_t *valuelen, void **_keynode)
+{
+    return priskv_get_key_base(_kv, key, keylen, val, valuelen, _keynode, true /* for_seal */);
+}
+
 int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
-                 void **_keynode)
+                   void **_keynode)
+{
+    return priskv_get_key_base(_kv, key, keylen, val, valuelen, _keynode, false /* for_seal */);
+}
+
+int priskv_get_key_base(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint32_t *valuelen,
+                        void **_keynode, bool for_seal)
 {
     priskv_kv *kv = _kv;
     bool expired = false;
@@ -398,7 +413,9 @@ int priskv_get_key(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val, uint
     *_keynode = keynode;
 
     if (keynode->inprocess) {
-        return PRISKV_RESP_STATUS_KEY_UPDATING;
+        if (!for_seal) {
+            return PRISKV_RESP_STATUS_KEY_UPDATING;
+        }
     }
 
     *val = priskv_value_to_pointer(kv, keynode);
@@ -532,6 +549,165 @@ void priskv_set_key_end(void *arg)
     }
 
     keynode->inprocess = false;
+}
+
+/*
+ * Allocate a private keynode for zero-copy write (ALLOC), without publishing to the hash table.
+ * - Do not delete the same-named published key to avoid overwriting during the unpublished phase;
+ *   replacement happens during publish (SEAL).
+ * - Set inprocess=true, record expiry and length, and return the value address for client write.
+ * - Initial refcnt=1 (held by the token), and do not join LRU to avoid eviction.
+ */
+int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
+                              uint32_t alloc_length, uint64_t timeout, void **_keynode)
+{
+    priskv_kv *kv = _kv;
+    priskv_key *keynode = NULL, *old_keynode;
+    uint8_t *vaddr = NULL;
+    int retries = 0;
+
+    /* Parameter check: zero alloc_length is invalid */
+    if (!alloc_length) {
+        *_keynode = NULL;
+        return PRISKV_RESP_STATUS_VALUE_EMPTY;
+    }
+
+    /* Allocate new keynode and value space; try LRU eviction if necessary */
+    keynode = (priskv_key *)priskv_slab_alloc(kv->key_slab);
+    vaddr = priskv_buddy_alloc(kv->value_buddy, alloc_length);
+    while (!vaddr || !keynode) {
+        if (retries++ > MAX_EVICT_RETRIES) {
+            priskv_log_warn("KV: private alloc failed after %d evict retries\n", retries);
+            goto out_nomem;
+        }
+
+        old_keynode = priskv_lru_evict(kv);
+        if (!old_keynode) {
+            priskv_log_warn("KV: private alloc failed, no key-values to evict\n");
+            goto out_nomem;
+        }
+
+        old_keynode = priskv_find_key(kv, (uint8_t *)old_keynode->key, old_keynode->keylen,
+                                      PRISKV_KEY_MAX_TIMEOUT, true, NULL);
+        if (old_keynode) {
+            priskv_lru_del_key(old_keynode);
+            __priskv_del_key(kv, old_keynode);
+        }
+
+        if (!keynode) {
+            keynode = (priskv_key *)priskv_slab_alloc(kv->key_slab);
+        }
+        if (!vaddr) {
+            vaddr = priskv_buddy_alloc(kv->value_buddy, alloc_length);
+        }
+    }
+
+    /* Initialize new keynode, but do NOT insert into hash/LRU */
+    list_node_init(&keynode->entry);
+    list_node_init(&keynode->lru_entry);
+    keynode->kv = kv;
+    keynode->keylen = keylen;
+    keynode->value_off = priskv_pointer_to_value(kv, vaddr);
+    keynode->valuelen = alloc_length;
+    memcpy(keynode->key, key, keylen);
+    keynode->inprocess = true;
+    if (timeout < PRISKV_KEY_MAX_TIMEOUT) {
+        gettimeofday(&keynode->expire_time, NULL);
+        priskv_time_add_ms(&keynode->expire_time, timeout);
+    } else {
+        keynode->expire_time.tv_sec = -1;
+        keynode->expire_time.tv_usec = -1;
+    }
+    keynode->refcnt = 0;
+    pthread_spin_init(&keynode->lock, 0);
+    priskv_keynode_ref(keynode); /* Initial reference held by the token */
+
+    *val = vaddr;
+    *_keynode = keynode;
+    return PRISKV_RESP_STATUS_OK;
+
+out_nomem:
+    if (vaddr) {
+        priskv_buddy_free(kv->value_buddy, vaddr);
+    }
+    if (keynode) {
+        priskv_slab_free(kv->key_slab, keynode);
+    }
+    *_keynode = NULL;
+    return PRISKV_RESP_STATUS_NO_MEM;
+}
+
+/*
+ * Publish a private keynode (SEAL):
+ * - If a same-named published key exists, delete the old node (pop+free) first, then insert the
+ *   new node into the hash table.
+ * - Join LRU and clear inprocess so it becomes readable (ACQUIRE/GET).
+ */
+int priskv_publish_node(void *_kv, void *_keynode)
+{
+    priskv_kv *kv = _kv;
+    priskv_key *keynode = (priskv_key *)_keynode;
+    priskv_key *old_keynode;
+
+    if (!keynode || keynode->kv != kv) {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
+    }
+
+    old_keynode = priskv_find_key(kv, (uint8_t *)keynode->key, keynode->keylen,
+                                  PRISKV_KEY_MAX_TIMEOUT, true, NULL);
+    if (old_keynode) {
+        priskv_lru_del_key(old_keynode);
+        __priskv_del_key(kv, old_keynode);
+    }
+
+    /* Insert new node and add to LRU */
+    priskv_insert_keynode(kv, keynode);
+    priskv_lru_access(keynode, false);
+    keynode->inprocess = false;
+
+    return PRISKV_RESP_STATUS_OK;
+}
+
+/*
+ * Drop for ALLOC-private nodes (unpublished):
+ * - This function expects a private keynode allocated via priskv_alloc_node_private.
+ * - Private nodes NEVER appear in the hash table or LRU prior to SEAL, so there is no lookup.
+ * - Actual reclamation is triggered by releasing the token reference (e.g., priskv_get_key_end),
+ *   which decrements refcnt and frees when it reaches zero.
+ */
+int priskv_drop_node(void *_kv, void *_keynode)
+{
+    priskv_kv *kv = _kv;
+    priskv_key *keynode = (priskv_key *)_keynode;
+
+    if (!keynode || keynode->kv != kv) {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
+    }
+
+    /* Sanity: DROP is intended for unpublished private nodes (inprocess==true before SEAL). */
+    if (!keynode->inprocess) {
+        /* If ever called on a published node, do not touch hash/LRU here. Use DELETE instead. */
+        return PRISKV_RESP_STATUS_PERMISSION_DENIED;
+    }
+
+    /* No hash/LRU operations for private nodes. Reclamation happens when the caller releases
+     * the token reference via priskv_get_key_end(keynode). */
+    return PRISKV_RESP_STATUS_OK;
+}
+
+int priskv_value_addr_offset(void *_kv, uint8_t *val, uint64_t *addr_offset)
+{
+    priskv_kv *kv = _kv;
+    void *mf_ctx = kv->mf_ctx;
+    if (mf_ctx) {
+        *addr_offset = priskv_mem_value_offset(kv->mf_ctx, val);
+        return PRISKV_RESP_STATUS_OK;
+    } else {
+        /* Fallback: compute offset relative to in-memory value base when mf_ctx is NULL.
+         * This supports unit tests and non-memfile deployments where values reside in-process. */
+        *addr_offset = (uint64_t)(val - kv->value_base);
+        return PRISKV_RESP_STATUS_OK;
+    }
 }
 
 int priskv_delete_key(void *_kv, uint8_t *key, uint16_t keylen)

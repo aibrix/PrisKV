@@ -27,6 +27,7 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <endian.h>
 
 #include "priskv-config.h"
 #include "priskv-cuda.h"
@@ -93,6 +94,15 @@ static void __attribute__((constructor)) priskv_client_transport_init(void)
     }
 }
 
+/*
+ * TODO: Implement Shared Memory Read-Only protection via Dual Mapping.
+ *
+ * Current status: In SHM mode, the client can physically write to memory acquired via
+ * priskv_acquire. Next stage: The client library should map the SHM file twice:
+ * 1) Read-Only mapping (PROT_READ) for 'acquire' operations.
+ * 2) Read-Write mapping (PROT_READ | PROT_WRITE) for 'alloc' operations.
+ * This enforces RO semantics, causing unauthorized writes to 'acquire' regions to fault.
+ */
 static int priskv_transport_mmap(void **addr, uint64_t *size, int *fd, uint32_t shm_pid, int shm_fd)
 {
     char proc_path[256];
@@ -184,6 +194,7 @@ priskv_client *priskv_connect(const char *raddr, int rport, const char *laddr, i
         goto err;
     }
 
+    priskv_log_debug("Transport: server mem.use_shm %d\n", g_config.mem.use_shm);
     // If use shm, mmap shm buffer into memory space
     if (g_config.mem.use_shm) {
         if (client->conns[0]->shm_pid < 0) {
@@ -275,13 +286,29 @@ static inline priskv_transport_conn *priskv_select_conn(priskv_client *client)
 }
 
 static void priskv_send_command(priskv_client *client, uint64_t request_id, const char *key,
-                                priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout,
-                                priskv_req_command cmd, priskv_generic_cb cb)
+                                uint32_t alloc_length, priskv_sgl *sgl, uint16_t nsgl,
+                                uint64_t timeout, priskv_req_command cmd, priskv_generic_cb cb)
 {
     priskv_transport_conn *conn = priskv_select_conn(client);
     priskv_connect_param *param = &conn->param;
     priskv_transport_req *req;
-    uint16_t keylen = strlen(key);
+    uint16_t keylen = 0;
+    const char *key_ptr = key;
+    uint64_t tok_be_buf = 0;
+
+    /* For SEAL/RELEASE/DROP, reuse the key field to carry a binary token with fixed length 8.
+     * Server parses in network byte order (be64toh); client must send in big-endian. */
+    if (cmd == PRISKV_COMMAND_SEAL || cmd == PRISKV_COMMAND_RELEASE || cmd == PRISKV_COMMAND_DROP) {
+        keylen = sizeof(uint64_t);
+        if (key) {
+            uint64_t tok = *(const uint64_t *)key;
+            tok_be_buf = htobe64(tok);
+            key_ptr = (const char *)&tok_be_buf;
+        }
+    } else {
+        keylen = strlen(key);
+        key_ptr = key;
+    }
 
     assert(cmd < PRISKV_COMMAND_MAX);
     if (!key || !keylen) {
@@ -297,7 +324,8 @@ static void priskv_send_command(priskv_client *client, uint64_t request_id, cons
         cb(request_id, PRISKV_STATUS_INVALID_SGL, NULL);
     }
 
-    req = client->ops->new_req(client, conn, request_id, key, keylen, sgl, nsgl, timeout, cmd, cb);
+    req = client->ops->new_req(client, conn, request_id, key_ptr, keylen, alloc_length, sgl, nsgl,
+                               timeout, cmd, cb);
     if (!req) {
         cb(request_id, PRISKV_STATUS_NO_MEM, NULL);
         return;
@@ -314,7 +342,8 @@ int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
         return 0;
     }
 
-    priskv_send_command(client, request_id, key, sgl, nsgl, 0, PRISKV_COMMAND_GET, cb);
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, sgl, nsgl, 0,
+                        PRISKV_COMMAND_GET, cb);
     return 0;
 }
 
@@ -326,49 +355,96 @@ int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
         return 0;
     }
 
-    priskv_send_command(client, request_id, key, sgl, nsgl, timeout, PRISKV_COMMAND_SET, cb);
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, sgl, nsgl, timeout,
+                        PRISKV_COMMAND_SET, cb);
     return 0;
 }
 
 int priskv_test_async(priskv_client *client, const char *key, uint64_t request_id,
                       priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, 0, PRISKV_COMMAND_TEST, cb);
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_TEST, cb);
     return 0;
 }
 
 int priskv_delete_async(priskv_client *client, const char *key, uint64_t request_id,
                         priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, 0, PRISKV_COMMAND_DELETE, cb);
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_DELETE, cb);
     return 0;
 }
 
 int priskv_expire_async(priskv_client *client, const char *key, uint64_t timeout,
                         uint64_t request_id, priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, key, NULL, 0, timeout, PRISKV_COMMAND_EXPIRE, cb);
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, timeout,
+                        PRISKV_COMMAND_EXPIRE, cb);
     return 0;
 }
 
 int priskv_keys_async(priskv_client *client, const char *regex, uint64_t request_id,
                       priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_KEYS, cb);
+    priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_KEYS, cb);
     return 0;
 }
 
 int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t request_id,
                         priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_NRKEYS, cb);
+    priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_NRKEYS, cb);
     return 0;
 }
 
 int priskv_flush_async(priskv_client *client, const char *regex, uint64_t request_id,
                        priskv_generic_cb cb)
 {
-    priskv_send_command(client, request_id, regex, NULL, 0, 0, PRISKV_COMMAND_FLUSH, cb);
+    priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_FLUSH, cb);
+    return 0;
+}
+
+int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_length,
+                       uint64_t timeout, uint64_t request_id, priskv_generic_cb cb)
+{
+    priskv_send_command(client, request_id, key, alloc_length, NULL, 0, timeout,
+                        PRISKV_COMMAND_ALLOC, cb);
+    return 0;
+}
+
+int priskv_seal_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                      priskv_generic_cb cb)
+{
+    priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_SEAL, cb);
+    return 0;
+}
+
+int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
+                         uint64_t request_id, priskv_generic_cb cb)
+{
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, timeout,
+                        PRISKV_COMMAND_ACQUIRE, cb);
+    return 0;
+}
+
+int priskv_release_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                         priskv_generic_cb cb)
+{
+    priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_RELEASE, cb);
+    return 0;
+}
+
+int priskv_drop_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
+                      priskv_generic_cb cb)
+{
+    priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
+                        PRISKV_COMMAND_DROP, cb);
     return 0;
 }
 

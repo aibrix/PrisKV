@@ -61,6 +61,7 @@ typedef struct priskv_keys_resp {
     uint16_t keylen;
     uint16_t reserved;
     uint32_t valuelen;
+    uint64_t addr_offset;
 } priskv_keys_resp;
 
 /*
@@ -76,6 +77,12 @@ typedef enum priskv_req_command {
     /* get the number of keys by regex, priskv_keys_resp::valuelen indicates it. */
     PRISKV_COMMAND_NRKEYS = 0x06,
     PRISKV_COMMAND_FLUSH = 0x07, /* flush keys by regex */
+    /* for the zero copy mode */
+    PRISKV_COMMAND_ALLOC = 0x08,   /* alloc memory region if support zero copy */
+    PRISKV_COMMAND_SEAL = 0x09,    /* seal memory region alloced for write */
+    PRISKV_COMMAND_ACQUIRE = 0x0a, /* acquire memory region if support zero copy */
+    PRISKV_COMMAND_RELEASE = 0x0b, /* release memory region acquired for read*/
+    PRISKV_COMMAND_DROP = 0x0c,    /* drop memory region and remove from hash table */
 
     PRISKV_COMMAND_MAX /* not a part of protocol, keep last */
 } priskv_req_command;
@@ -103,6 +110,7 @@ typedef struct priskv_request {
     uint8_t reserved[4];
     uint16_t nsgl; /* how many SGL contains following */
     uint16_t key_length;
+    uint32_t alloc_length;
     priskv_request_runtime runtime;
     priskv_keyed_sgl sgls[0];
 } priskv_request;
@@ -120,11 +128,14 @@ typedef enum priskv_resp_status {
     PRISKV_RESP_STATUS_VALUE_TOO_BIG,
     PRISKV_RESP_STATUS_NO_SUCH_COMMAND,
     PRISKV_RESP_STATUS_NO_SUCH_KEY,
+    /* token not found (for SEAL/RELEASE/DROP with invalid token) */
+    PRISKV_RESP_STATUS_NO_SUCH_TOKEN,
     PRISKV_RESP_STATUS_INVALID_SGL,
     PRISKV_RESP_STATUS_INVALID_REGEX,
     PRISKV_RESP_STATUS_KEY_UPDATING,
     PRISKV_RESP_STATUS_CONNECT_ERROR,
     PRISKV_RESP_STATUS_SERVER_ERROR,
+    PRISKV_RESP_STATUS_PERMISSION_DENIED,
 
     PRISKV_RESP_STATUS_NO_MEM = 0x200
 } priskv_resp_status;
@@ -135,9 +146,11 @@ typedef enum priskv_resp_status {
 typedef struct priskv_response {
     uint64_t request_id;
     uint64_t timeout; /* in ms */
+    uint64_t addr_offset; /* the address offset of memory region */
     uint32_t length;  /* the length of value */
     uint16_t status;  /* priskv_resp_status */
-    uint8_t reserved[10];
+    uint64_t token;   /* token for zero copy handle, used in reserved space */
+    uint16_t reserved2;
 } priskv_response;
 
 /*

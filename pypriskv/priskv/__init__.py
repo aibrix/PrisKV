@@ -23,6 +23,14 @@
 #   Enhua Zhou <zhouenhua@bytedance.com>
 
 from .priskv_client import PriskvClient
-from ._priskv import SGL
-
-__all__ = ["PriskvClient", "SGL"]
+from ._priskv import (
+    SGL,
+    MemoryRegion,
+    PRISKV_STATUS,  # enum type
+)
+__all__ = [
+    "PriskvClient",
+    "SGL",
+    "MemoryRegion",
+    "PRISKV_STATUS",
+]
