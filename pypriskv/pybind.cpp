@@ -270,8 +270,8 @@ PYBIND11_MODULE(_priskv_client, m)
 {
     m.attr("PRISKV_KEY_MAX_TIMEOUT") = PRISKV_KEY_MAX_TIMEOUT;
 
-    // 仅导出枚举类型 PRISKV_STATUS（不再导出顶级常量），保持类型化访问：
-    // 使用方式：priskv.PRISKV_STATUS.PRISKV_STATUS_OK 等
+    // Export only the PRISKV_STATUS enum (do not export top-level constants) to keep type-safe access.
+    // Usage: priskv.PRISKV_STATUS.PRISKV_STATUS_OK, etc.
     py::enum_<priskv_status>(m, "PRISKV_STATUS")
         .value("PRISKV_STATUS_OK", PRISKV_STATUS_OK)
         .value("PRISKV_STATUS_NO_SUCH_KEY", PRISKV_STATUS_NO_SUCH_KEY)

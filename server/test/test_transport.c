@@ -317,6 +317,66 @@ static void test_kv_transport_param_validation(void *kv)
     g_transport_driver = old_driver;
 }
 
+/* --- ALLOC path: token_add fails -> expect SERVER_ERROR and private node reclaimed --- */
+static void test_kv_transport_alloc_token_add_fail(void *kv)
+{
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = (priskv_transport_conn){0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    /* Inject a one-shot failure for token_add */
+    priskv_test_token_add_fail_once = true;
+
+    uint32_t alloc_len = 512;
+    /* Record value-buddy usage before/after ALLOC to ensure memory is reclaimed on failure */
+    uint64_t used_before = priskv_get_value_blocks_inuse(kv);
+    last_status = -1;
+    do_mock_req(&conn, PRISKV_COMMAND_ALLOC, &alloc_len, sizeof(uint32_t));
+    if (last_status != PRISKV_RESP_STATUS_SERVER_ERROR) {
+        printf("TEST TRANSPORT: ALLOC with token_add failure should be SERVER_ERROR [FAILED], got %s\n",
+               priskv_resp_status_str(last_status));
+        assert(0);
+    }
+    printf("TEST TRANSPORT: ALLOC with token_add failure [OK]\n");
+
+    uint64_t used_after = priskv_get_value_blocks_inuse(kv);
+    if (used_after != used_before) {
+        printf("TEST TRANSPORT: value_blocks_inuse should be unchanged after failed ALLOC [FAILED], before=%lu after=%lu\n",
+               used_before, used_after);
+        assert(0);
+    }
+    printf("TEST TRANSPORT: value_blocks_inuse unchanged after failed ALLOC [OK]\n");
+
+    /* Ensure key not published and not ACQUIRE-able */
+    const char *key = "perm_test_key";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    last_status = -1;
+    do_mock_req(&conn, PRISKV_COMMAND_ACQUIRE, (void *)key, keylen);
+    if (last_status != PRISKV_RESP_STATUS_NO_SUCH_KEY) {
+        printf("TEST TRANSPORT: ACQUIRE after failed ALLOC should be NO_SUCH_KEY [FAILED], got %s\n",
+               priskv_resp_status_str(last_status));
+        assert(0);
+    }
+    printf("TEST TRANSPORT: ACQUIRE after failed ALLOC [OK]\n");
+
+    /* Cleanup */
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
 int main()
 {
     uint8_t *key_base, *value_base;
@@ -334,6 +394,7 @@ int main()
     test_kv_transport_permissions(kv);
     test_kv_transport_drop_behavior(kv);
     test_kv_transport_param_validation(kv);
+    test_kv_transport_alloc_token_add_fail(kv);
     printf("TEST TRANSPORT: All tests passed!\n");
 
     priskv_destroy_kv(kv);

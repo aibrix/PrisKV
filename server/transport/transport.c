@@ -30,6 +30,9 @@ priskv_transport_server g_transport_server = {
     .context = NULL,
 };
 
+/* Test-only fault injection flag: when true, make the next token_add fail. */
+bool priskv_test_token_add_fail_once = false;
+
 extern priskv_transport_driver priskv_transport_driver_ucx;
 extern priskv_transport_driver priskv_transport_driver_rdma;
 
@@ -207,6 +210,11 @@ void priskv_check_and_log_slow_query(priskv_transport_rw_work *work)
 uint64_t priskv_transport_token_add(priskv_transport_conn *conn, void *keynode,
                                     priskv_token_type type)
 {
+    /* Fault injection for tests: simulate allocation failure */
+    if (priskv_test_token_add_fail_once) {
+        priskv_test_token_add_fail_once = false;
+        return 0;
+    }
     priskv_token_entry *entry = malloc(sizeof(priskv_token_entry));
     if (!entry) {
         return 0;
@@ -536,7 +544,11 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             uint64_t addr_offset = 0;
             uint64_t token = priskv_transport_token_add(conn, keynode, PRISKV_TOKEN_TYPE_ALLOC);
             if (!token) {
-                // TODO: cleanup keynode if token add fails
+                /* On token allocation failure, reclaim the unpublished private node:
+                 * - The node was allocated via priskv_alloc_node_private and is held by a single reference
+                 * - No token exists to release later; call priskv_get_key_end to decrement refcnt and free
+                 */
+                priskv_get_key_end(keynode);
                 ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_SERVER_ERROR,
                                             0, 0, 0);
                 break;

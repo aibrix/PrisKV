@@ -352,6 +352,11 @@ void *priskv_transport_token_find(priskv_transport_conn *conn, uint64_t token,
 void priskv_transport_token_del(priskv_transport_conn *conn, uint64_t token);
 void priskv_transport_token_cleanup(priskv_transport_conn *conn);
 
+/* Fault injection hook for tests: when set to true, the next call to
+ * priskv_transport_token_add will fail and return 0. Production code should
+ * leave this as false. */
+extern bool priskv_test_token_add_fail_once;
+
 #if defined(__cplusplus)
 }
 #endif
