@@ -208,12 +208,12 @@ priskvClusterStatus priskvClusterSet(priskvClusterClient *client, const char *ke
 priskvClusterStatus priskvClusterAlloc(priskvClusterClient *client, const char *key,
                                        uint64_t alloc_length, uint64_t timeout, uint64_t *addr);
 priskvClusterStatus priskvClusterSeal(priskvClusterClient *client, const char *key,
-                                      const uint64_t *token);
+                                      const uint64_t *token, bool pin_on_seal);
 priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char *key,
-                                         uint64_t timeout, uint64_t *addr_offset,
-                                         uint32_t *valuelen);
+                                         uint64_t timeout, bool pin_on_acquire,
+                                         uint64_t *addr_offset, uint32_t *valuelen);
 priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key,
-                                         const uint64_t *token);
+                                         const uint64_t *token, bool unpin_on_release);
 priskvClusterStatus priskvClusterDrop(priskvClusterClient *client, const char *key,
                                       const uint64_t *token);
 priskvClusterStatus priskvClusterTest(priskvClusterClient *client, const char *key, uint32_t *value_len);
@@ -226,4 +226,4 @@ priskvClusterStatus priskvClusterStatusFromPriskvStatus(priskv_status status);
 int priskvClusterAllocRegion(priskvClusterClient *client, const char *key, uint32_t alloc_length,
                              uint64_t timeout, priskv_memory_region *region);
 int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uint64_t timeout,
-                               priskv_memory_region *region);
+                               bool pin_on_acquire, priskv_memory_region *region);

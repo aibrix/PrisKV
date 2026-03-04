@@ -161,6 +161,29 @@ int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t 
 int priskv_publish_node(void *_kv, void *_keynode);
 int priskv_drop_node(void *_kv, void *_keynode);
 
+/* Pin/Unpin controls for lifecycle protection */
+int priskv_key_pin(void *_kv, void *_keynode);
+int priskv_key_unpin_latest(void *_kv, void *_keynode);
+
+/* Pin/Unpin observability */
+uint64_t priskv_get_pin_ops(void *_kv);
+uint64_t priskv_get_unpin_ops(void *_kv);
+uint64_t priskv_get_unpin_not_closed(void *_kv);
+
+/*
+ * TODO(wangyi): PinManager APIs & metrics
+ * - Define PinManager lifecycle APIs:
+ *   - priskv_pin_manager_init/_destroy
+ *   - priskv_pin_register(key, keylen, ttl_ms, origin, request_id)
+ *   - priskv_pin_remove(key, keylen)
+ *   - priskv_pin_ttl_cleanup_tick() scheduled via timerfd
+ * - Define metrics getters for info panel:
+ *   - priskv_get_pin_ttl_active()
+ *   - priskv_get_pin_ttl_expired()
+ *   - priskv_get_pin_ttl_cleanup_ops()
+ *   - priskv_get_pin_ttl_orphaned()
+ */
+
 #if defined(__cplusplus)
 }
 #endif

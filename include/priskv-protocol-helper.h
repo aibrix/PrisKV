@@ -146,6 +146,9 @@ static inline const char *priskv_resp_status_str(priskv_resp_status status)
     case PRISKV_RESP_STATUS_NO_SUCH_TOKEN:
         return "No such token";
 
+    case PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED:
+        return "Unpin operation not closed";
+
     case PRISKV_RESP_STATUS_INVALID_SGL:
         return "Invalid SGL";
 

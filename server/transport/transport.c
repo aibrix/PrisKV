@@ -280,6 +280,7 @@ void priskv_transport_token_cleanup(priskv_transport_conn *conn)
 int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *req, uint32_t len)
 {
     uint16_t command = be16toh(req->command);
+    uint32_t flags = be32toh(req->flags);
     uint16_t nsgl = be16toh(req->nsgl);
     uint64_t timeout = be64toh(req->timeout);
     uint32_t alloc_length = be32toh(req->alloc_length);
@@ -588,6 +589,15 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                 break;
             }
             status = priskv_publish_node(conn->kv, keynode);
+            /* Optional: pin-on-seal if requested */
+            if (status == PRISKV_RESP_STATUS_OK && (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL)) {
+                (void)priskv_key_pin(conn->kv, keynode);
+                /* TODO(wangyi): PinTTL register on SEAL
+                 * - If protocol provides per-request TTL (e.g., pin_ttl_ms), register a
+                 *   PinOperator with PinManager for this key to ensure eventual cleanup.
+                 * - Fallback to server default TTL when not provided.
+                 */
+            }
             priskv_transport_token_del(conn, token);
             ret = driver->send_response(conn, req->request_id, status, 0, 0, 0);
         }
@@ -607,6 +617,14 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                 ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_SERVER_ERROR,
                                             0, 0, 0);
                 break;
+            }
+            /* Optional: pin on acquire if requested */
+            if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
+                (void)priskv_key_pin(conn->kv, keynode);
+                /* TODO(wangyi): PinTTL register on ACQUIRE
+                 * - Register PinOperator with PinManager using request-scoped or default TTL.
+                 * - Associate optional request_id for observability.
+                 */
             }
             status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             ret =
@@ -640,9 +658,18 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
+            /* Optional: unpin on release if requested; unpin always targets latest version */
+            priskv_resp_status resp = PRISKV_RESP_STATUS_OK;
+            if (flags & PRISKV_REQ_FLAG_UNPIN_ON_RELEASE) {
+                /* TODO(wangyi): PinTTL remove on RELEASE
+                 * - Remove the corresponding PinOperator entry for this key.
+                 * - Then perform unpin on latest version to maintain multi-version semantics.
+                 */
+                resp = priskv_key_unpin_latest(conn->kv, keynode);
+            }
             priskv_get_key_end(keynode);
             priskv_transport_token_del(conn, token);
-            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, 0, 0, 0);
+            ret = driver->send_response(conn, req->request_id, resp, 0, 0, 0);
         }
         break;
     case PRISKV_COMMAND_DROP:

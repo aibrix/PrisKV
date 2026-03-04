@@ -287,7 +287,8 @@ static inline priskv_transport_conn *priskv_select_conn(priskv_client *client)
 
 static void priskv_send_command(priskv_client *client, uint64_t request_id, const char *key,
                                 uint32_t alloc_length, priskv_sgl *sgl, uint16_t nsgl,
-                                uint64_t timeout, priskv_req_command cmd, priskv_generic_cb cb)
+                                uint64_t timeout, priskv_req_command cmd, uint32_t req_flags,
+                                priskv_generic_cb cb)
 {
     priskv_transport_conn *conn = priskv_select_conn(client);
     priskv_connect_param *param = &conn->param;
@@ -330,7 +331,7 @@ static void priskv_send_command(priskv_client *client, uint64_t request_id, cons
         cb(request_id, PRISKV_STATUS_NO_MEM, NULL);
         return;
     }
-
+    req->req_flags = req_flags;
     client->ops->submit_req(req);
 }
 
@@ -343,7 +344,7 @@ int priskv_get_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
     }
 
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, sgl, nsgl, 0,
-                        PRISKV_COMMAND_GET, cb);
+                        PRISKV_COMMAND_GET, 0, cb);
     return 0;
 }
 
@@ -356,7 +357,7 @@ int priskv_set_async(priskv_client *client, const char *key, priskv_sgl *sgl, ui
     }
 
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, sgl, nsgl, timeout,
-                        PRISKV_COMMAND_SET, cb);
+                        PRISKV_COMMAND_SET, 0, cb);
     return 0;
 }
 
@@ -364,7 +365,7 @@ int priskv_test_async(priskv_client *client, const char *key, uint64_t request_i
                       priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_TEST, cb);
+                        PRISKV_COMMAND_TEST, 0, cb);
     return 0;
 }
 
@@ -372,7 +373,7 @@ int priskv_delete_async(priskv_client *client, const char *key, uint64_t request
                         priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_DELETE, cb);
+                        PRISKV_COMMAND_DELETE, 0, cb);
     return 0;
 }
 
@@ -380,7 +381,7 @@ int priskv_expire_async(priskv_client *client, const char *key, uint64_t timeout
                         uint64_t request_id, priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, timeout,
-                        PRISKV_COMMAND_EXPIRE, cb);
+                        PRISKV_COMMAND_EXPIRE, 0, cb);
     return 0;
 }
 
@@ -388,7 +389,7 @@ int priskv_keys_async(priskv_client *client, const char *regex, uint64_t request
                       priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_KEYS, cb);
+                        PRISKV_COMMAND_KEYS, 0, cb);
     return 0;
 }
 
@@ -396,7 +397,7 @@ int priskv_nrkeys_async(priskv_client *client, const char *regex, uint64_t reque
                         priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_NRKEYS, cb);
+                        PRISKV_COMMAND_NRKEYS, 0, cb);
     return 0;
 }
 
@@ -404,7 +405,7 @@ int priskv_flush_async(priskv_client *client, const char *regex, uint64_t reques
                        priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, regex, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_FLUSH, cb);
+                        PRISKV_COMMAND_FLUSH, 0, cb);
     return 0;
 }
 
@@ -412,39 +413,43 @@ int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_le
                        uint64_t timeout, uint64_t request_id, priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, key, alloc_length, NULL, 0, timeout,
-                        PRISKV_COMMAND_ALLOC, cb);
+                        PRISKV_COMMAND_ALLOC, 0, cb);
     return 0;
 }
 
-int priskv_seal_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
-                      priskv_generic_cb cb)
+int priskv_seal_async(priskv_client *client, const uint64_t *token, bool pin_on_seal,
+                      uint64_t request_id, priskv_generic_cb cb)
 {
+    uint32_t flags = pin_on_seal ? PRISKV_REQ_FLAG_PIN_ON_SEAL : 0;
     priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_SEAL, cb);
+                        PRISKV_COMMAND_SEAL, flags, cb);
     return 0;
 }
 
 int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
-                         uint64_t request_id, priskv_generic_cb cb)
+                        bool pin_on_acquire, uint64_t request_id, priskv_generic_cb cb)
 {
+    uint32_t flags = pin_on_acquire ? PRISKV_REQ_FLAG_PIN_ON_ACQUIRE : 0;
     priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, timeout,
-                        PRISKV_COMMAND_ACQUIRE, cb);
+                        PRISKV_COMMAND_ACQUIRE, flags, cb);
     return 0;
 }
 
-int priskv_release_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
-                         priskv_generic_cb cb)
+int priskv_release_async(priskv_client *client, const uint64_t *token, bool unpin_on_release,
+                        uint64_t request_id, priskv_generic_cb cb)
 {
+    uint32_t flags = unpin_on_release ? PRISKV_REQ_FLAG_UNPIN_ON_RELEASE : 0;
     priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_RELEASE, cb);
+                        PRISKV_COMMAND_RELEASE, flags, cb);
     return 0;
 }
+
 
 int priskv_drop_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
                       priskv_generic_cb cb)
 {
     priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0, 0,
-                        PRISKV_COMMAND_DROP, cb);
+                        PRISKV_COMMAND_DROP, 0, cb);
     return 0;
 }
 

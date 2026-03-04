@@ -35,11 +35,13 @@
 
 /* --- Transport Layer Permission Tests (Negative Cases) --- */
 static priskv_resp_status last_status;
+static uint64_t last_token;
 static int mock_send_response(priskv_transport_conn *conn, uint64_t request_id,
                               priskv_resp_status status, uint32_t length, uint64_t addr_offset,
                               uint64_t token)
 {
     last_status = status;
+    last_token = token;
     return 0;
 }
 
@@ -74,6 +76,18 @@ static void do_mock_req(priskv_transport_conn *conn, uint16_t cmd, void *payload
         memcpy(mock_request_key(req), payload, payload_len);
         priskv_transport_handle_recv(conn, req, sizeof(priskv_request) + payload_len);
     }
+}
+
+static void do_mock_req_with_flags(priskv_transport_conn *conn, uint16_t cmd, void *payload,
+                                   uint16_t payload_len, uint32_t flags)
+{
+    uint8_t req_buf[1024];
+    priskv_request *req = (priskv_request *)req_buf;
+    memset(req, 0, sizeof(req_buf));
+    req->command = htobe16(cmd);
+    req->flags = htobe32(flags);
+    memcpy(mock_request_key(req), payload, payload_len);
+    priskv_transport_handle_recv(conn, req, sizeof(priskv_request) + payload_len);
 }
 
 static void test_kv_transport_permissions(void *kv)
@@ -377,6 +391,206 @@ static void test_kv_transport_alloc_token_add_fail(void *kv)
     g_transport_driver = old_driver;
 }
 
+/* --- Pin on SEAL and pin_count inheritance tests --- */
+static void test_kv_transport_pin_on_seal(void *kv)
+{
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = {0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    const char *key = "pin_seal_key";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    uint8_t *val_ptr = NULL;
+    void *keynode_alloc = NULL;
+
+    /* ALLOC private node and publish with pin-on-seal */
+    int s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 256,
+                                      PRISKV_KEY_MAX_TIMEOUT, &keynode_alloc);
+    assert(s == PRISKV_RESP_STATUS_OK && keynode_alloc);
+    uint64_t alloc_token = priskv_transport_token_add(&conn, keynode_alloc, PRISKV_TOKEN_TYPE_ALLOC);
+    uint64_t be_token = htobe64(alloc_token);
+    last_status = -1;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_SEAL, &be_token, sizeof(uint64_t),
+                           PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    assert(last_status == PRISKV_RESP_STATUS_OK);
+
+    /* verify pin_count == 1 on latest */
+    uint32_t vlen = 0;
+    void *keynode_acq = NULL;
+    priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &keynode_acq);
+    assert(keynode_acq);
+    priskv_key *kn = (priskv_key *)keynode_acq;
+    assert(kn->pin_count == 1);
+    priskv_get_key_end(keynode_acq);
+
+    /* publish a new version with pin-on-seal again; pin_count should inherit and increment to 2 */
+    keynode_alloc = NULL;
+    s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 128,
+                                  PRISKV_KEY_MAX_TIMEOUT, &keynode_alloc);
+    assert(s == PRISKV_RESP_STATUS_OK && keynode_alloc);
+    alloc_token = priskv_transport_token_add(&conn, keynode_alloc, PRISKV_TOKEN_TYPE_ALLOC);
+    be_token = htobe64(alloc_token);
+    last_status = -1;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_SEAL, &be_token, sizeof(uint64_t),
+                           PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    assert(last_status == PRISKV_RESP_STATUS_OK);
+
+    priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &keynode_acq);
+    assert(keynode_acq);
+    kn = (priskv_key *)keynode_acq;
+    assert(kn->pin_count == 2);
+    priskv_get_key_end(keynode_acq);
+
+    /* cleanup */
+    priskv_delete_key(kv, (uint8_t *)key, keylen);
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
+/* --- Pin on ACQUIRE + Unpin on RELEASE tests --- */
+static void test_kv_transport_pin_and_unpin(void *kv)
+{
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = {0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    const char *key = "pin_unpin_key";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    uint8_t *val_ptr = NULL;
+    void *keynode_alloc = NULL;
+
+    /* publish a key */
+    int s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 128,
+                                      PRISKV_KEY_MAX_TIMEOUT, &keynode_alloc);
+    assert(s == PRISKV_RESP_STATUS_OK && keynode_alloc);
+    priskv_publish_node(kv, keynode_alloc);
+
+    /* ACQUIRE with pin-on-acquire */
+    last_status = -1; last_token = 0;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_ACQUIRE, (void *)key, keylen,
+                           PRISKV_REQ_FLAG_PIN_ON_ACQUIRE);
+    assert(last_status == PRISKV_RESP_STATUS_OK);
+
+    /* verify pin_count == 1 */
+    uint32_t vlen = 0;
+    void *keynode_acq = NULL;
+    priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &keynode_acq);
+    assert(keynode_acq);
+    priskv_key *kn = (priskv_key *)keynode_acq;
+    assert(kn->pin_count == 1);
+    priskv_get_key_end(keynode_acq);
+
+    /* RELEASE with unpin-on-release */
+    uint64_t be_token = htobe64(last_token);
+    last_status = -1;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_RELEASE, &be_token, sizeof(uint64_t),
+                           PRISKV_REQ_FLAG_UNPIN_ON_RELEASE);
+    assert(last_status == PRISKV_RESP_STATUS_OK);
+
+    /* verify pin_count == 0 and counters updated */
+    priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &keynode_acq);
+    assert(keynode_acq);
+    kn = (priskv_key *)keynode_acq;
+    assert(kn->pin_count == 0);
+    priskv_get_key_end(keynode_acq);
+
+    /* TODO(wangyi): Add PinTTL cleanup tests in transport layer
+     * - Inject short TTL for pin entries (once protocol supports it) and advance timer to
+     *   verify automatic unpin on latest version.
+     * - Verify counters for ttl_expired and ttl_cleanup_ops.
+     */
+
+    uint64_t pin_ops = priskv_get_pin_ops(kv);
+    uint64_t unpin_ops = priskv_get_unpin_ops(kv);
+    uint64_t unpin_not_closed = priskv_get_unpin_not_closed(kv);
+    assert(pin_ops >= 1);
+    assert(unpin_ops >= 1);
+    assert(unpin_not_closed == 0);
+
+    /* cleanup */
+    priskv_delete_key(kv, (uint8_t *)key, keylen);
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
+/* --- Unpin when latest version is missing (deleted/expired) tests --- */
+static void test_kv_transport_unpin_no_such_key(void *kv)
+{
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = {0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    const char *key = "unpin_nosuch_key";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    uint8_t *val_ptr = NULL;
+    void *keynode_alloc = NULL;
+
+    /* publish a key */
+    int s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 64,
+                                      PRISKV_KEY_MAX_TIMEOUT, &keynode_alloc);
+    assert(s == PRISKV_RESP_STATUS_OK && keynode_alloc);
+    priskv_publish_node(kv, keynode_alloc);
+
+    /* ACQUIRE with pin-on-acquire to generate a token */
+    last_status = -1; last_token = 0;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_ACQUIRE, (void *)key, keylen,
+                           PRISKV_REQ_FLAG_PIN_ON_ACQUIRE);
+    assert(last_status == PRISKV_RESP_STATUS_OK);
+
+    /* delete the key before release */
+    priskv_delete_key(kv, (uint8_t *)key, keylen);
+
+    /* RELEASE with unpin-on-release should return NO_SUCH_KEY */
+    uint64_t be_token = htobe64(last_token);
+    last_status = -1;
+    do_mock_req_with_flags(&conn, PRISKV_COMMAND_RELEASE, &be_token, sizeof(uint64_t),
+                           PRISKV_REQ_FLAG_UNPIN_ON_RELEASE);
+    assert(last_status == PRISKV_RESP_STATUS_NO_SUCH_KEY);
+
+    /* cleanup */
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
 int main()
 {
     uint8_t *key_base, *value_base;
@@ -395,6 +609,9 @@ int main()
     test_kv_transport_drop_behavior(kv);
     test_kv_transport_param_validation(kv);
     test_kv_transport_alloc_token_add_fail(kv);
+    test_kv_transport_pin_on_seal(kv);
+    test_kv_transport_pin_and_unpin(kv);
+    test_kv_transport_unpin_no_such_key(kv);
     printf("TEST TRANSPORT: All tests passed!\n");
 
     priskv_destroy_kv(kv);

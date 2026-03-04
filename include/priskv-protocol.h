@@ -82,7 +82,7 @@ typedef enum priskv_req_command {
     PRISKV_COMMAND_SEAL = 0x09,    /* seal memory region alloced for write */
     PRISKV_COMMAND_ACQUIRE = 0x0a, /* acquire memory region if support zero copy */
     PRISKV_COMMAND_RELEASE = 0x0b, /* release memory region acquired for read*/
-    PRISKV_COMMAND_DROP = 0x0c,    /* drop memory region and remove from hash table */
+    PRISKV_COMMAND_DROP = 0x0c,    /* drop memory region */
 
     PRISKV_COMMAND_MAX /* not a part of protocol, keep last */
 } priskv_req_command;
@@ -103,11 +103,26 @@ typedef struct priskv_request_runtime {
 /*
  * request from client, submitted by @IBV_WR_SEND
  */
+/* Request flags (bitmask) to control optional behaviors */
+#define PRISKV_REQ_FLAG_PIN_ON_ACQUIRE   (1u << 0)
+#define PRISKV_REQ_FLAG_UNPIN_ON_RELEASE (1u << 1)
+#define PRISKV_REQ_FLAG_PIN_ON_SEAL      (1u << 2)
+
+/*
+ * TODO(wangyi): Consider protocol extensions for PinTTL override
+ * - Add optional fields to priskv_request (e.g., pin_ttl_ms) to allow per-request TTL
+ *   configuration for pin operations.
+ * - Versioning: guard new fields behind a capability/version negotiation to preserve
+ *   compatibility.
+ * - Transport integration: wire up pin_ttl_ms to PinManager on server side when present,
+ *   otherwise fallback to server default TTL.
+ */
+
 typedef struct priskv_request {
     uint64_t request_id;
     uint64_t timeout; /* in ms */
     uint16_t command; /* priskv_req_command */
-    uint8_t reserved[4];
+    uint32_t flags;   /* request behavior flags (big-endian on wire) */
     uint16_t nsgl; /* how many SGL contains following */
     uint16_t key_length;
     uint32_t alloc_length;
@@ -130,6 +145,8 @@ typedef enum priskv_resp_status {
     PRISKV_RESP_STATUS_NO_SUCH_KEY,
     /* token not found (for SEAL/RELEASE/DROP with invalid token) */
     PRISKV_RESP_STATUS_NO_SUCH_TOKEN,
+    /* unpin requested when pin_count == 0 on latest version */
+    PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED,
     PRISKV_RESP_STATUS_INVALID_SGL,
     PRISKV_RESP_STATUS_INVALID_REGEX,
     PRISKV_RESP_STATUS_KEY_UPDATING,

@@ -1363,6 +1363,7 @@ static int priskv_ucx_send_req(void *arg)
     req->command = htobe16(ucx_req->cmd);
     req->nsgl = htobe16(ucx_req->nsgl);
     req->timeout = htobe64(ucx_req->timeout);
+    req->flags = htobe32(ucx_req->req_flags);
     req->key_length = htobe16(ucx_req->keylen);
     req->alloc_length = htobe32(ucx_req->alloc_length);
 

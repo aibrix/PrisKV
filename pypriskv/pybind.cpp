@@ -139,13 +139,13 @@ std::tuple<int, uint64_t> priskv_alloc_wrapper(uintptr_t client, std::string key
 }
 
 std::tuple<int, uint64_t, uint32_t> priskv_acquire_wrapper(uintptr_t client, std::string key,
-                                                           uint64_t timeout)
+                                                           uint64_t timeout, bool pin_on_acquire)
 {
 
     uint64_t addr_offset = 0;
     uint32_t value_length = 0;
     int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), timeout,
-                                   &addr_offset, &value_length);
+                                   pin_on_acquire, &addr_offset, &value_length);
     return {ret, addr_offset, value_length};
 }
 
@@ -276,7 +276,8 @@ PYBIND11_MODULE(_priskv_client, m)
         .value("PRISKV_STATUS_OK", PRISKV_STATUS_OK)
         .value("PRISKV_STATUS_NO_SUCH_KEY", PRISKV_STATUS_NO_SUCH_KEY)
         .value("PRISKV_STATUS_PERMISSION_DENIED", PRISKV_STATUS_PERMISSION_DENIED)
-        .value("PRISKV_STATUS_NO_SUCH_TOKEN", PRISKV_STATUS_NO_SUCH_TOKEN);
+        .value("PRISKV_STATUS_NO_SUCH_TOKEN", PRISKV_STATUS_NO_SUCH_TOKEN)
+        .value("PRISKV_STATUS_UNPIN_NOT_CLOSED", PRISKV_STATUS_UNPIN_NOT_CLOSED);
 
     pybind11::class_<priskv_memory_region>(m, "MemoryRegion", py::module_local())
         .def(pybind11::init<>())
@@ -308,26 +309,29 @@ PYBIND11_MODULE(_priskv_client, m)
 
     m.def(
         "seal",
-        [](uintptr_t client, std::string key, const priskv_memory_region &region) {
-            return (int)priskvClusterSeal((priskvClusterClient *)client, key.c_str(), &region.token);
+        [](uintptr_t client, std::string key, const priskv_memory_region &region, bool pin_on_seal) {
+            return (int)priskvClusterSeal((priskvClusterClient *)client, key.c_str(), &region.token, pin_on_seal);
         },
+        py::arg("client"), py::arg("key"), py::arg("region"), py::arg("pin_on_seal") = false,
         "A function to seal memory region of val.");
 
     m.def(
         "acquire",
-        [](uintptr_t client, std::string key, uint64_t timeout) {
+        [](uintptr_t client, std::string key, uint64_t timeout, bool pin_on_acquire) {
             priskv_memory_region region {0};
             int ret = priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(),
-                                                 timeout, &region);
+                                                 timeout, pin_on_acquire, &region);
             return py::make_tuple(ret, region);
         },
+        py::arg("client"), py::arg("key"), py::arg("timeout"), py::arg("pin_on_acquire") = false,
         "A function to acquire memory region for read.");
 
     m.def(
         "release",
-        [](uintptr_t client, std::string key, const priskv_memory_region &region) {
-            return (int)priskvClusterRelease((priskvClusterClient *)client, key.c_str(), &region.token);
+        [](uintptr_t client, std::string key, const priskv_memory_region &region, bool unpin_on_release) {
+            return (int)priskvClusterRelease((priskvClusterClient *)client, key.c_str(), &region.token, unpin_on_release);
         },
+        py::arg("client"), py::arg("key"), py::arg("region"), py::arg("unpin_on_release") = false,
         "A function to release memory region of read.");
     m.def(
         "drop",

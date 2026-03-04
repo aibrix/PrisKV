@@ -447,6 +447,101 @@ class PriskvClientTesting:
         print("[INFO] [TDROP] cleanup complete and key deleted")
         print("[INFO] [TDROP] Test end: Transport DROP semantics")
 
+    def test_pin_on_seal_and_inheritance(self):
+        """Validate pin_on_seal and multi-version inheritance (feature path coverage)."""
+        TEST_KEY = "py_pin_seal_key"
+        SIZE = 256
+        TIMEOUT = 3000
+
+        # Version 1: alloc + seal(pin)
+        status, region1 = self.client.alloc(TEST_KEY, SIZE, TIMEOUT)
+        assert status == 0 and region1.length == SIZE
+        status = self.client.seal(TEST_KEY, region1, pin_on_seal=True)
+        assert status == 0
+
+        # Version 2: alloc + seal(pin)
+        status, region2 = self.client.alloc(TEST_KEY, SIZE // 2, TIMEOUT)
+        assert status == 0 and region2.length == SIZE // 2
+        status = self.client.seal(TEST_KEY, region2, pin_on_seal=True)
+        assert status == 0
+
+        # Two rounds of acquire/release(unpin)
+        status, acq1 = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=False)
+        assert status == 0
+        status = self.client.release(TEST_KEY, acq1, unpin_on_release=True)
+        assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_OK
+
+        status, acq2 = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=False)
+        assert status == 0
+        status = self.client.release(TEST_KEY, acq2, unpin_on_release=True)
+        assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_OK
+
+        # Cleanup
+        assert self.client.delete(TEST_KEY) == 0
+
+    def test_pin_on_acquire_and_unpin_on_release(self):
+        """Validate acquire(pin_on_acquire) and release(unpin_on_release)."""
+        TEST_KEY = "py_pin_unpin_key"
+        SIZE = 128
+        TIMEOUT = 3000
+
+        status, region = self.client.alloc(TEST_KEY, SIZE, TIMEOUT)
+        assert status == 0
+        status = self.client.seal(TEST_KEY, region)
+        assert status == 0
+
+        status, acq = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=True)
+        assert status == 0
+        status = self.client.release(TEST_KEY, acq, unpin_on_release=True)
+        assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_OK
+
+        assert self.client.delete(TEST_KEY) == 0
+
+    def test_unpin_not_closed_on_release(self):
+        """Unpin without prior pin should return UNPIN_NOT_CLOSED."""
+        TEST_KEY = "py_unpin_not_closed"
+        SIZE = 64
+        TIMEOUT = 3000
+
+        status, region = self.client.alloc(TEST_KEY, SIZE, TIMEOUT)
+        assert status == 0
+        status = self.client.seal(TEST_KEY, region)
+        assert status == 0
+
+        status, acq = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=False)
+        assert status == 0
+        status = self.client.release(TEST_KEY, acq, unpin_on_release=True)
+        assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_UNPIN_NOT_CLOSED, \
+            f"expected UNPIN_NOT_CLOSED, got {status}"
+
+        assert self.client.delete(TEST_KEY) == 0
+
+    def test_unpin_no_such_key(self):
+        """When latest version does not exist, unpin returns NO_SUCH_KEY/NO_SUCH_TOKEN."""
+        TEST_KEY = "py_unpin_no_such_key"
+        SIZE = 96
+        TIMEOUT = 3000
+
+        status, region = self.client.alloc(TEST_KEY, SIZE, TIMEOUT)
+        assert status == 0
+        status = self.client.seal(TEST_KEY, region)
+        assert status == 0
+
+        status, acq = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=True)
+        assert status == 0
+
+        # Release after delete
+        assert self.client.delete(TEST_KEY) == 0
+        status = self.client.release(TEST_KEY, acq, unpin_on_release=True)
+        assert status in (priskv.PRISKV_STATUS.PRISKV_STATUS_NO_SUCH_TOKEN,
+                          priskv.PRISKV_STATUS.PRISKV_STATUS_NO_SUCH_KEY)
+
+    # TODO(wangyi): Add PinTTL expiry tests
+    # - Simulate pin-on-acquire/pin-on-seal with a short TTL and verify automatic cleanup
+    #   decrements pin_count on the latest version after TTL.
+    # - Cover cases where latest is deleted/expired to ensure cleanup counters record
+    #   NO_SUCH_KEY scenarios without crashing.
+
 def run_testing(testing):
     testing.set()
     testing.get()
@@ -464,6 +559,10 @@ def run_testing(testing):
     testing.test_memory_operations_full_flow()
     testing.test_transport_permissions()
     testing.test_transport_drop_behavior()
+    testing.test_pin_on_seal_and_inheritance()
+    testing.test_pin_on_acquire_and_unpin_on_release()
+    testing.test_unpin_not_closed_on_release()
+    testing.test_unpin_no_such_key()
 
     testing.cleanup()
 

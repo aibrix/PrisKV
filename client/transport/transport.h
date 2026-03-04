@@ -103,6 +103,7 @@ typedef struct priskv_transport_req {
     uint32_t alloc_length;
     uint64_t timeout;
     priskv_req_command cmd;
+    uint32_t req_flags; /* Serialize request behavior flags into priskv_request::flags */
     void (*cb)(struct priskv_transport_req *req);
     priskv_generic_cb usercb;
 #define PRISKV_TRANSPORT_REQ_FLAG_SEND (1 << 0)

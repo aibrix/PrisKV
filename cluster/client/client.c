@@ -592,15 +592,15 @@ int priskvClusterSubmitRequest(priskvClusterRequest *req)
                                (uint64_t)req, priskvClusterZeroCopyRequestCallback);
             break;
         case SEAL:
-            priskv_seal_async(req->node->client, &req->token, (uint64_t)req,
+            priskv_seal_async(req->node->client, &req->token, false /* pin_on_seal */, (uint64_t)req,
                               priskvClusterRequestCallback);
             break;
         case ACQUIRE:
-            priskv_acquire_async(req->node->client, req->key, req->timeout, (uint64_t)req,
+            priskv_acquire_async(req->node->client, req->key, req->timeout, false /* pin_on_acquire */, (uint64_t)req,
                                  priskvClusterZeroCopyRequestCallback);
             break;
         case RELEASE:
-            priskv_release_async(req->node->client, &req->token, (uint64_t)req,
+            priskv_release_async(req->node->client, &req->token, false /* unpin_on_release */, (uint64_t)req,
                                  priskvClusterRequestCallback);
             break;
         case DROP:
@@ -1056,19 +1056,20 @@ int priskvClusterAllocRegion(priskvClusterClient *client, const char *key, uint3
 }
 
 priskvClusterStatus priskvClusterSeal(priskvClusterClient *client, const char *key,
-                                      const uint64_t *token)
+                                      const uint64_t *token, bool pin_on_seal)
 {
     priskvClusterNode *node = priskvClusterGetNode(client, key);
     if (!node) {
         return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
     }
-    priskv_status status = priskv_seal(node->client, token);
+    priskv_status status = priskv_seal(node->client, token, pin_on_seal);
 
     return priskvClusterStatusFromPriskvStatus(status);
 }
 
 priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char *key,
-                                         uint64_t timeout, uint64_t *addr, uint32_t *valuelen)
+                                         uint64_t timeout, bool pin_on_acquire, uint64_t *addr,
+                                         uint32_t *valuelen)
 {
     priskvClusterNode *node = priskvClusterGetNode(client, key);
     if (!node) {
@@ -1076,7 +1077,7 @@ priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char
     }
 
     priskv_memory_region region = {0};
-    priskv_status status = priskv_acquire(node->client, key, timeout, &region);
+    priskv_status status = priskv_acquire(node->client, key, timeout, pin_on_acquire, &region);
     if (status == PRISKV_STATUS_OK) {
         if (addr) {
             *addr = region.addr;
@@ -1090,24 +1091,24 @@ priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char
 }
 
 int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uint64_t timeout,
-                               priskv_memory_region *region)
+                               bool pin_on_acquire, priskv_memory_region *region)
 {
     priskvClusterNode *node = priskvClusterGetNode(client, key);
     if (!node) {
         return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
     }
 
-    return priskv_acquire(node->client, key, timeout, region);
+    return priskv_acquire(node->client, key, timeout, pin_on_acquire, region);
 }
 
 priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key,
-                                         const uint64_t *token)
+                                         const uint64_t *token, bool unpin_on_release)
 {
     priskvClusterNode *node = priskvClusterGetNode(client, key);
     if (!node) {
         return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
     }
-    priskv_status status = priskv_release(node->client, token);
+    priskv_status status = priskv_release(node->client, token, unpin_on_release);
 
     return priskvClusterStatusFromPriskvStatus(status);
 }

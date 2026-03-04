@@ -177,20 +177,22 @@ int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, 
     return req_sync.status;
 }
 
-int priskv_seal(priskv_client *client, const uint64_t *token)
+int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal)
 {
     priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
-    priskv_seal_async(client, token, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_seal_async(client, token, pin_on_seal, (uint64_t)&req_sync,
+                      priskv_common_sync_cb);
 
     priskv_sync_wait(client, &req_sync.done);
     return req_sync.status;
 }
 
 int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
-                   priskv_memory_region *region)
+                   bool pin_on_acquire, priskv_memory_region *region)
 {
     priskv_transport_zero_copy_req_sync req_sync = {.status = 0xffff, .done = false};
-    priskv_acquire_async(client, key, timeout, (uint64_t)&req_sync, priskv_zero_copy_req_sync_cb);
+    priskv_acquire_async(client, key, timeout, pin_on_acquire, (uint64_t)&req_sync,
+                         priskv_zero_copy_req_sync_cb);
 
     priskv_sync_wait(client, &req_sync.done);
     if (req_sync.status == PRISKV_STATUS_OK && region) {
@@ -201,10 +203,11 @@ int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
     return req_sync.status;
 }
 
-int priskv_release(priskv_client *client, const uint64_t *token)
+int priskv_release(priskv_client *client, const uint64_t *token, bool unpin_on_release)
 {
     priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
-    priskv_release_async(client, token, (uint64_t)&req_sync, priskv_common_sync_cb);
+    priskv_release_async(client, token, unpin_on_release, (uint64_t)&req_sync,
+                         priskv_common_sync_cb);
     priskv_sync_wait(client, &req_sync.done);
 
     return req_sync.status;

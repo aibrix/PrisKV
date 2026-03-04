@@ -63,6 +63,16 @@ typedef struct priskv_kv_info {
     uint64_t expire_routine_times;
     uint64_t expire_kv_count;
     uint64_t expire_kv_bytes;
+    /* pin/unpin observability */
+    uint64_t pin_ops;
+    uint64_t unpin_ops;
+    uint64_t unpin_not_closed;
+    /* TODO(wangyi): Extend with PinTTL metrics once available
+     * - uint64_t pin_ttl_active;
+     * - uint64_t pin_ttl_expired;
+     * - uint64_t pin_ttl_cleanup_ops;
+     * - uint64_t pin_ttl_orphaned;
+     */
 } priskv_kv_info;
 
 extern priskv_object priskv_kv_info_obj;

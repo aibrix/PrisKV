@@ -33,6 +33,8 @@ extern "C"
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
+#include "priskv-protocol.h" /* Include protocol request flag definitions */
 
 typedef struct priskv_client priskv_client;
 typedef struct priskv_memory priskv_memory;
@@ -105,6 +107,9 @@ typedef enum priskv_status {
     /* no such token */
     PRISKV_STATUS_NO_SUCH_TOKEN,
 
+    /* unpin requested when pin_count == 0 on latest version */
+    PRISKV_STATUS_UNPIN_NOT_CLOSED,
+
     /* invalid SGL. the number of SGL within a command must not exceed @max_sgl */
     PRISKV_STATUS_INVALID_SGL,
 
@@ -168,6 +173,9 @@ static inline const char *priskv_status_str(priskv_status status)
 
     case PRISKV_STATUS_NO_SUCH_TOKEN:
         return "No such token";
+
+    case PRISKV_STATUS_UNPIN_NOT_CLOSED:
+        return "Unpin operation not closed";
 
     case PRISKV_STATUS_INVALID_SGL:
         return "Invalid SGL";
@@ -262,16 +270,17 @@ int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_le
                        uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
 
 /* Seal memory region alloced for write (by token pointer, reuse key field) */
-int priskv_seal_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
-                      priskv_generic_cb cb);
+int priskv_seal_async(priskv_client *client, const uint64_t *token, bool pin_on_seal,
+                      uint64_t request_id, priskv_generic_cb cb);
 
 /* Acquire memory region for zero copy read */
 int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
-                         uint64_t request_id, priskv_generic_cb cb);
+                         bool pin_on_acquire, uint64_t request_id, priskv_generic_cb cb);
 
 /* Release memory region (by token pointer, reuse key field) */
-int priskv_release_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
-                         priskv_generic_cb cb);
+int priskv_release_async(priskv_client *client, const uint64_t *token, bool unpin_on_release,
+                         uint64_t request_id, priskv_generic_cb cb);
+
 
 /* Drop memory region (by token pointer, reuse key field) */
 int priskv_drop_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
@@ -325,11 +334,11 @@ uint64_t priskv_capacity(priskv_client *client);
 
 int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, uint64_t timeout,
                  priskv_memory_region *region);
-int priskv_seal(priskv_client *client, const uint64_t *token);
+int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal);
 
 int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
-                   priskv_memory_region *region);
-int priskv_release(priskv_client *client, const uint64_t *token);
+                   bool pin_on_acquire, priskv_memory_region *region);
+int priskv_release(priskv_client *client, const uint64_t *token, bool unpin_on_release);
 
 int priskv_drop(priskv_client *client, const uint64_t *token);
 

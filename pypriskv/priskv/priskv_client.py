@@ -75,20 +75,23 @@ class PriskvClient:
     
     def seal(self,
             key: str,
-            region: client.MemoryRegion) -> int:
-        return client.seal(self.conn, key, region)
+            region: client.MemoryRegion,
+            pin_on_seal: bool = False) -> int:
+        return client.seal(self.conn, key, region, pin_on_seal)
 
     def acquire(self,
             key: str,
             timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
+            pin_on_acquire: bool = False,
             ) -> Tuple[int, client.MemoryRegion]:
-        status, region = client.acquire(self.conn, key, timeout)
+        status, region = client.acquire(self.conn, key, timeout, pin_on_acquire)
         return status, region
     
     def release(self,
             key: str,
-            region: client.MemoryRegion) -> int:
-        return client.release(self.conn, key, region)
+            region: client.MemoryRegion,
+            unpin_on_release: bool = False) -> int:
+        return client.release(self.conn, key, region, unpin_on_release)
 
     def drop(self,
             key: str,

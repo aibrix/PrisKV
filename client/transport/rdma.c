@@ -1256,6 +1256,7 @@ static int priskv_rdma_req_send(void *arg)
     req->command = htobe16(rdma_req->cmd);
     req->nsgl = htobe16(rdma_req->nsgl);
     req->timeout = htobe64(rdma_req->timeout);
+    req->flags = htobe32(rdma_req->req_flags);
     req->key_length = htobe16(rdma_req->keylen);
 
     struct timeval client_metadata_send_time;

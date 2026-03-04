@@ -66,6 +66,12 @@ PRISKV_DECL_OBJECT_VALUE_FIELD(priskv_kv_info, "expire_kv_count", expire_kv_coun
                              required, forced)
 PRISKV_DECL_OBJECT_VALUE_FIELD(priskv_kv_info, "expire_kv_bytes", expire_kv_bytes, priskv_uint64,
                              required, forced)
+PRISKV_DECL_OBJECT_VALUE_FIELD(priskv_kv_info, "pin_ops", pin_ops, priskv_uint64, required,
+                             forced)
+PRISKV_DECL_OBJECT_VALUE_FIELD(priskv_kv_info, "unpin_ops", unpin_ops, priskv_uint64, required,
+                             forced)
+PRISKV_DECL_OBJECT_VALUE_FIELD(priskv_kv_info, "unpin_not_closed", unpin_not_closed, priskv_uint64,
+                             required, forced)
 
 PRISKV_DECL_OBJECT_END(priskv_kv_info, priskv_kv_info)
 

@@ -933,7 +933,8 @@ static void zc_acquire_cb(uint64_t rid, priskv_status status, void *result)
     zctx->pctx->job->mm->memcpy(zctx->value, (void *)region->addr, region->length);
     zctx->token = region->token;
     zctx->pctx->job->last_stage = "RELEASE";
-    priskv_release_async(zctx->pctx->client, &zctx->token, (uint64_t)zctx, zc_release_cb);
+    priskv_release_async(zctx->pctx->client, &zctx->token, false /* unpin_on_release */, (uint64_t)zctx,
+                         zc_release_cb);
 }
 
 static void zc_seal_cb(uint64_t rid, priskv_status status, void *result)
@@ -962,7 +963,8 @@ static void zc_alloc_cb(uint64_t rid, priskv_status status, void *result)
     zctx->pctx->job->mm->memcpy((void *)region->addr, zctx->value, copy_len);
     zctx->token = region->token;
     zctx->pctx->job->last_stage = "SEAL";
-    priskv_seal_async(zctx->pctx->client, &zctx->token, (uint64_t)zctx, zc_seal_cb);
+    priskv_seal_async(zctx->pctx->client, &zctx->token, false /* pin_on_seal */, (uint64_t)zctx,
+                      zc_seal_cb);
 }
 
 /* ZeroCopy DROP callback is no longer used (published keys use DELETE semantics) */
@@ -994,8 +996,8 @@ static void priskv_drv_get(void *ctx, const char *key, void *value, uint32_t val
         zctx->value = value;
         zctx->value_len = value_len;
         priskv_ctx->job->last_stage = "ACQUIRE";
-        priskv_acquire_async(priskv_ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, (uint64_t)zctx,
-                             zc_acquire_cb);
+        priskv_acquire_async(priskv_ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, false /* pin_on_acquire */,
+                             (uint64_t)zctx, zc_acquire_cb);
         return;
     }
     /* Remove duplicate ZeroCopy GET branch */
