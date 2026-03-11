@@ -451,9 +451,77 @@ static priskv_key *priskv_find_key(priskv_kv *kv, uint8_t *key, uint16_t keylen,
     return NULL;
 }
 
+/*
+ * Apply a delta to pin_count on the latest visible version of a key.
+ * - Look up the latest version under the hash-bucket lock.
+ * - If the key is expired, remove it and return NO_SUCH_KEY.
+ * - For delta > 0: increment pin_count by delta.
+ * - For delta < 0: decrement pin_count by |delta| if possible; otherwise return
+ *   PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED without modifying pin_count.
+ * - Does not update kv->pin_stats; the caller is responsible for stats accounting.
+ */
+static priskv_resp_status priskv_pin_count_delta_latest(priskv_kv *kv, uint8_t *key,
+                                                        uint16_t keylen, int32_t delta);
+
 static void __priskv_del_key(priskv_kv *kv, priskv_key *keynode)
 {
     priskv_keynode_deref(keynode);
+}
+
+static priskv_resp_status priskv_pin_count_delta_latest(priskv_kv *kv, uint8_t *key,
+                                                        uint16_t keylen, int32_t delta)
+{
+    if (!kv || !key || !keylen) {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
+    }
+
+    /* Locate bucket and the latest visible node for the key */
+    uint32_t crc = priskv_crc32(key, keylen);
+    priskv_hash_head *hash_head = &kv->hash_heads[crc % kv->bucket_count];
+
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
+    pthread_spin_lock(&hash_head->lock);
+    priskv_key *cur; priskv_key *latest = NULL;
+    list_for_each (&hash_head->head, cur, entry) {
+        if (cur->keylen == keylen && memcmp(cur->key, key, keylen) == 0) {
+            latest = cur;
+            break;
+        }
+    }
+
+    if (latest == NULL) {
+        pthread_spin_unlock(&hash_head->lock);
+        return PRISKV_RESP_STATUS_NO_SUCH_KEY;
+    }
+
+    /* If expired, remove from hash while holding the bucket lock and cleanup outside */
+    if (priskv_key_timeout(latest, now)) {
+        list_del(&latest->entry);
+        pthread_spin_unlock(&hash_head->lock);
+        priskv_lru_del_key(latest);
+        __priskv_del_key(kv, latest);
+        return PRISKV_RESP_STATUS_NO_SUCH_KEY;
+    }
+
+    priskv_resp_status resp = PRISKV_RESP_STATUS_OK;
+    pthread_spin_lock(&latest->lock);
+    if (delta >= 0) {
+        latest->pin_count += (uint32_t)delta;
+    } else {
+        uint32_t need = (uint32_t)(-delta);
+        if (latest->pin_count >= need) {
+            latest->pin_count -= need;
+        } else {
+            /* Not enough pins closed by the caller */
+            resp = PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED;
+        }
+    }
+    pthread_spin_unlock(&latest->lock);
+    pthread_spin_unlock(&hash_head->lock);
+
+    return resp;
 }
 
 int priskv_get_key_for_seal(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
@@ -722,20 +790,34 @@ out_nomem:
  *   new node into the hash table.
  * - Join LRU and clear inprocess so it becomes readable (ACQUIRE/GET).
  */
-int priskv_publish_node(void *_kv, void *_keynode)
+int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish)
 {
     priskv_kv *kv = _kv;
     priskv_key *keynode = (priskv_key *)_keynode;
-    priskv_key *old_keynode;
+    priskv_key *old_keynode = NULL;
 
     if (!keynode || keynode->kv != kv) {
         return PRISKV_RESP_STATUS_SERVER_ERROR;
     }
 
-    old_keynode = priskv_find_key(kv, (uint8_t *)keynode->key, keynode->keylen,
-                                  PRISKV_KEY_MAX_TIMEOUT, true, NULL);
+    /* Atomically replace the visible version under the hash-bucket lock to avoid
+     * a window where multiple versions can be inserted concurrently. */
+    uint32_t crc = priskv_crc32(keynode->key, keynode->keylen);
+    priskv_hash_head *hash_head = &kv->hash_heads[crc % kv->bucket_count];
+
+    pthread_spin_lock(&hash_head->lock);
+    /* Find existing visible key (if any) */
+    priskv_key *iter;
+    list_for_each (&hash_head->head, iter, entry) {
+        if (iter->keylen == keynode->keylen &&
+            memcmp(iter->key, keynode->key, keynode->keylen) == 0) {
+            old_keynode = iter;
+            break;
+        }
+    }
+
+    /* Inherit pin_count from old version before making the new one visible. */
     if (old_keynode) {
-        /* inherit pin_count from old version to keep lifecycle semantics */
         pthread_spin_lock(&old_keynode->lock);
         uint32_t old_pins = old_keynode->pin_count;
         pthread_spin_unlock(&old_keynode->lock);
@@ -743,16 +825,44 @@ int priskv_publish_node(void *_kv, void *_keynode)
         pthread_spin_lock(&keynode->lock);
         keynode->pin_count = old_pins;
         pthread_spin_unlock(&keynode->lock);
+
+        /* Remove old from hash list (visibility) while holding the bucket lock. */
+        list_del(&old_keynode->entry);
+    } else {
+        /* No old version: initialize pin_count to 0 for safety. */
+        pthread_spin_lock(&keynode->lock);
+        keynode->pin_count = 0;
+        pthread_spin_unlock(&keynode->lock);
+    }
+
+    /* Optional: pin on publish within the same critical section to ensure atomicity
+     * relative to visibility. */
+    if (pin_on_publish) {
+        pthread_spin_lock(&keynode->lock);
+        keynode->pin_count++;
+        pthread_spin_unlock(&keynode->lock);
+    }
+
+    /* Insert new node into hash list under the same lock to ensure single visible version. */
+    list_add_tail(&hash_head->head, &keynode->entry);
+    pthread_spin_unlock(&hash_head->lock);
+
+    /* Add new node to LRU and finalize publish state. */
+    priskv_lru_access(keynode, false);
+    keynode->inprocess = false;
+
+    /* Cleanup the old version outside the bucket lock. */
+    if (old_keynode) {
         priskv_lru_del_key(old_keynode);
         __priskv_del_key(kv, old_keynode);
     }
 
-    /* Insert new node and add to LRU */
-    priskv_insert_keynode(kv, keynode);
-    priskv_lru_access(keynode, false);
-    keynode->inprocess = false;
-
     return PRISKV_RESP_STATUS_OK;
+}
+
+int priskv_publish_node(void *_kv, void *_keynode)
+{
+    return priskv_publish_node_with_pin(_kv, _keynode, false);
 }
 
 /*
@@ -782,22 +892,6 @@ int priskv_drop_node(void *_kv, void *_keynode)
     return PRISKV_RESP_STATUS_OK;
 }
 
-/* Increment pin_count on the given keynode. */
-int priskv_key_pin(void *_kv, void *_keynode)
-{
-    priskv_kv *kv = (priskv_kv *)_kv;
-    priskv_key *keynode = (priskv_key *)_keynode;
-    if (!keynode) {
-        return PRISKV_RESP_STATUS_SERVER_ERROR;
-    }
-    pthread_spin_lock(&keynode->lock);
-    keynode->pin_count++;
-    pthread_spin_unlock(&keynode->lock);
-    if (kv) {
-        kv->pin_stats.pin_ops++;
-    }
-    return PRISKV_RESP_STATUS_OK;
-}
 
 /* Decrement pin_count on the latest version of the key corresponding to keynode. */
 int priskv_key_unpin_latest(void *_kv, void *_keynode)
@@ -808,39 +902,30 @@ int priskv_key_unpin_latest(void *_kv, void *_keynode)
         return PRISKV_RESP_STATUS_SERVER_ERROR;
     }
 
-    uint8_t *key = node->key;
-    uint16_t keylen = node->keylen;
-    bool expired = false;
-    priskv_key *latest = priskv_find_key(kv, key, keylen, PRISKV_KEY_MAX_TIMEOUT, false, &expired);
-    if (!latest || expired) {
-        /* latest not found or expired already; nothing to unpin */
-        if (kv) {
-            kv->pin_stats.unpin_ops++;
-        }
-        return PRISKV_RESP_STATUS_NO_SUCH_KEY;
+    priskv_resp_status resp = priskv_pin_count_delta_latest(kv, node->key, node->keylen, -1);
+
+    /* Stats: count every UNPIN attempt; record not-closed cases. */
+    kv->pin_stats.unpin_ops++;
+    if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
+        kv->pin_stats.unpin_not_closed++;
+    }
+    return resp;
+}
+
+/* Increment pin_count on the latest visible version of the key corresponding to keynode. */
+int priskv_key_pin_latest(void *_kv, void *_keynode)
+{
+    priskv_kv *kv = (priskv_kv *)_kv;
+    priskv_key *node = (priskv_key *)_keynode;
+    if (!kv || !node) {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
     }
 
-    pthread_spin_lock(&latest->lock);
-    if (latest->pin_count > 0) {
-        latest->pin_count--;
-    } else {
-        /* indicate unpin is not closed (mismatched) */
-        pthread_spin_unlock(&latest->lock);
-        priskv_keynode_deref(latest);
-        if (kv) {
-            kv->pin_stats.unpin_ops++;
-            kv->pin_stats.unpin_not_closed++;
-        }
-        return PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED;
+    priskv_resp_status resp = priskv_pin_count_delta_latest(kv, node->key, node->keylen, +1);
+    if (resp == PRISKV_RESP_STATUS_OK) {
+        kv->pin_stats.pin_ops++;
     }
-    pthread_spin_unlock(&latest->lock);
-
-    /* release the temporary ref from priskv_find_key */
-    priskv_keynode_deref(latest);
-    if (kv) {
-        kv->pin_stats.unpin_ops++;
-    }
-    return PRISKV_RESP_STATUS_OK;
+    return resp;
 }
 
 uint64_t priskv_get_pin_ops(void *_kv)

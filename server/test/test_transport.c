@@ -460,6 +460,209 @@ static void test_kv_transport_pin_on_seal(void *kv)
     g_transport_driver = old_driver;
 }
 
+/* --- Concurrent SEAL+PIN test: two threads seal the same key (PIN on SEAL) --- */
+typedef struct seal_req_arg {
+    priskv_transport_conn *conn;
+    uint64_t token_host;           /* token in host byte order */
+    pthread_barrier_t *barrier;
+} seal_req_arg;
+
+static void *seal_with_pin_thread(void *arg)
+{
+    seal_req_arg *a = (seal_req_arg *)arg;
+    uint8_t req_buf[128];
+    priskv_request *req = (priskv_request *)req_buf;
+    memset(req, 0, sizeof(req_buf));
+    req->command = htobe16(PRISKV_COMMAND_SEAL);
+    req->flags = htobe32(PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    uint64_t be_token = htobe64(a->token_host);
+    memcpy((uint8_t *)req + sizeof(priskv_request), &be_token, sizeof(uint64_t));
+    pthread_barrier_wait(a->barrier);
+    priskv_transport_handle_recv(a->conn, req, sizeof(priskv_request) + sizeof(uint64_t));
+    return NULL;
+}
+
+static void test_kv_transport_concurrent_seal_pin(void *kv)
+{
+    /* Use a mock driver to avoid real network dependency */
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = (priskv_transport_conn){0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    const char *key = "concurrent_seal_pin_key";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    uint8_t *val_ptr = NULL;
+    void *node1 = NULL, *node2 = NULL;
+
+    /* Pre-allocate two unpublished versions (ALLOC private nodes) */
+    int s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 256,
+                                      PRISKV_KEY_MAX_TIMEOUT, &node1);
+    assert(s == PRISKV_RESP_STATUS_OK && node1);
+    s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 256,
+                                  PRISKV_KEY_MAX_TIMEOUT, &node2);
+    assert(s == PRISKV_RESP_STATUS_OK && node2);
+
+    /* Register ALLOC tokens for each node */
+    uint64_t t1 = priskv_transport_token_add(&conn, node1, PRISKV_TOKEN_TYPE_ALLOC);
+    uint64_t t2 = priskv_transport_token_add(&conn, node2, PRISKV_TOKEN_TYPE_ALLOC);
+
+    /* Launch two concurrent SEAL + PIN_ON_SEAL requests */
+    pthread_barrier_t barrier;
+    pthread_barrier_init(&barrier, NULL, 2);
+    pthread_t th1, th2;
+    seal_req_arg a1 = {.conn = &conn, .token_host = t1, .barrier = &barrier};
+    seal_req_arg a2 = {.conn = &conn, .token_host = t2, .barrier = &barrier};
+    pthread_create(&th1, NULL, seal_with_pin_thread, &a1);
+    pthread_create(&th2, NULL, seal_with_pin_thread, &a2);
+    pthread_join(th1, NULL);
+    pthread_join(th2, NULL);
+    pthread_barrier_destroy(&barrier);
+
+    /* Verify: pin_count on latest version == 2 */
+    uint32_t vlen = 0;
+    void *latest = NULL;
+    priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &latest);
+    assert(latest);
+    priskv_key *kn = (priskv_key *)latest;
+    assert(kn->pin_count == 2);
+    priskv_get_key_end(latest);
+
+    /* Two consecutive UNPINs should succeed, the third should be UNPIN_NOT_CLOSED */
+    priskv_resp_status r1 = priskv_key_unpin_latest(kv, node1);
+    priskv_resp_status r2 = priskv_key_unpin_latest(kv, node1);
+    priskv_resp_status r3 = priskv_key_unpin_latest(kv, node1);
+    assert(r1 == PRISKV_RESP_STATUS_OK);
+    assert(r2 == PRISKV_RESP_STATUS_OK);
+    assert(r3 == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED);
+
+    /* Cleanup */
+    priskv_delete_key(kv, (uint8_t *)key, keylen);
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
+static void *seal_with_pin_thread_stress(void *arg)
+{
+    seal_req_arg *a = (seal_req_arg *)arg;
+    uint8_t req_buf[128];
+    priskv_request *req = (priskv_request *)req_buf;
+    memset(req, 0, sizeof(req_buf));
+    req->command = htobe16(PRISKV_COMMAND_SEAL);
+    req->flags = htobe32(PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    uint64_t be_token = htobe64(a->token_host);
+    memcpy((uint8_t *)req + sizeof(priskv_request), &be_token, sizeof(uint64_t));
+    pthread_barrier_wait(a->barrier);
+    priskv_transport_handle_recv(a->conn, req, sizeof(priskv_request) + sizeof(uint64_t));
+    return NULL;
+}
+
+static void test_kv_transport_concurrent_seal_pin_stress(void *kv, int nthreads, int iters)
+{
+    /* Mock driver in-process */
+    priskv_transport_driver mock_driver = {
+        .name = "mock",
+        .send_response = mock_send_response,
+        .request_key_off = mock_request_key_off,
+        .request_key = mock_request_key,
+        .recv_req = mock_recv_req,
+    };
+    priskv_transport_driver *old_driver = g_transport_driver;
+    g_transport_driver = &mock_driver;
+
+    priskv_transport_conn conn = (priskv_transport_conn){0};
+    conn.kv = kv;
+    conn.conn_cap.max_key_length = MAX_KEY_LENGTH;
+    conn.conn_cap.max_sgl = 8;
+    pthread_spin_init(&conn.lock, PTHREAD_PROCESS_PRIVATE);
+
+    const char *key = "concurrent_seal_pin_stress";
+    uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    uint8_t *val_ptr = NULL;
+
+    for (int iter = 0; iter < iters; iter++) {
+        printf("[stress %d/%d]\n", iter, iters);
+        /* Prepare nthreads private nodes and tokens in each round */
+        void **nodes = calloc((size_t)nthreads, sizeof(void *));
+        uint64_t *tokens = calloc((size_t)nthreads, sizeof(uint64_t));
+        for (int i = 0; i < nthreads; i++) {
+            int s = priskv_alloc_node_private(kv, (uint8_t *)key, keylen, &val_ptr, 64,
+                                              PRISKV_KEY_MAX_TIMEOUT, &nodes[i]);
+            assert(s == PRISKV_RESP_STATUS_OK && nodes[i]);
+            tokens[i] = priskv_transport_token_add(&conn, nodes[i], PRISKV_TOKEN_TYPE_ALLOC);
+        }
+
+        pthread_barrier_t barrier;
+        pthread_barrier_init(&barrier, NULL, (unsigned int)nthreads);
+        pthread_t *ths = calloc((size_t)nthreads, sizeof(pthread_t));
+        seal_req_arg *args = calloc((size_t)nthreads, sizeof(seal_req_arg));
+        for (int i = 0; i < nthreads; i++) {
+            args[i].conn = &conn;
+            args[i].token_host = tokens[i];
+            args[i].barrier = &barrier;
+            pthread_create(&ths[i], NULL, seal_with_pin_thread_stress, &args[i]);
+        }
+        for (int i = 0; i < nthreads; i++) {
+            pthread_join(ths[i], NULL);
+        }
+        pthread_barrier_destroy(&barrier);
+
+        /* Verify pin_count == nthreads */
+        uint32_t vlen = 0;
+        void *latest = NULL;
+        int gr = priskv_get_key(kv, (uint8_t *)key, keylen, &val_ptr, &vlen, &latest);
+        if (gr != PRISKV_RESP_STATUS_OK || !latest) {
+            printf("TEST TRANSPORT: STRESS iter %d get latest [FAILED] ret %d\n", iter, gr);
+            assert(0);
+        }
+        priskv_key *kn = (priskv_key *)latest;
+        if (kn->pin_count != (uint32_t)nthreads) {
+            printf("TEST TRANSPORT: STRESS iter %d pin_count expected %d, got %u [FAILED]\n",
+                   iter, nthreads, kn->pin_count);
+            assert(0);
+        }
+        printf("TEST TRANSPORT: STRESS iter %d pin_count before unpin = %u\n", iter, kn->pin_count);
+        /* Release pins using the latest visible node; keep a reference until done */
+        /* log each UNPIN status to diagnose closure issues */
+        int unpin_errors = 0;
+        for (int i = 0; i < nthreads; i++) {
+            priskv_resp_status ur = priskv_key_unpin_latest(kv, latest);
+            if (ur != PRISKV_RESP_STATUS_OK) {
+                printf("TEST TRANSPORT: STRESS iter %d unpin[%d] status = %s\n",
+                       iter, i, priskv_resp_status_str(ur));
+                unpin_errors++;
+            }
+        }
+        priskv_get_key_end(latest);
+        if (unpin_errors) {
+            printf("TEST TRANSPORT: STRESS iter %d unpin errors = %d [FAILED]\n", iter, unpin_errors);
+            assert(0);
+        }
+        priskv_delete_key(kv, (uint8_t *)key, keylen);
+
+        free(ths);
+        free(args);
+        free(tokens);
+        free(nodes);
+    }
+
+    priskv_transport_token_cleanup(&conn);
+    pthread_spin_destroy(&conn.lock);
+    g_transport_driver = old_driver;
+}
+
 /* --- Pin on ACQUIRE + Unpin on RELEASE tests --- */
 static void test_kv_transport_pin_and_unpin(void *kv)
 {
@@ -612,6 +815,9 @@ int main()
     test_kv_transport_pin_on_seal(kv);
     test_kv_transport_pin_and_unpin(kv);
     test_kv_transport_unpin_no_such_key(kv);
+    test_kv_transport_concurrent_seal_pin(kv);
+    /* High-concurrency stress: threads and iterations are configurable; use 8*200 to expose atomicity issues */
+    test_kv_transport_concurrent_seal_pin_stress(kv, 8, 200);
     printf("TEST TRANSPORT: All tests passed!\n");
 
     priskv_destroy_kv(kv);
