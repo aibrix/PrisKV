@@ -159,11 +159,13 @@ void priskv_key_serialize_exit(struct priskv_tiering_req *completed_req);
 int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
                               uint32_t alloc_length, uint64_t timeout, void **_keynode);
 int priskv_publish_node(void *_kv, void *_keynode);
+/* Atomically publish and optionally pin on publish (for SEAL with PIN). */
+int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish);
 int priskv_drop_node(void *_kv, void *_keynode);
 
-/* Pin/Unpin controls for lifecycle protection */
-int priskv_key_pin(void *_kv, void *_keynode);
 int priskv_key_unpin_latest(void *_kv, void *_keynode);
+/* Pin on the latest version of the key corresponding to keynode */
+int priskv_key_pin_latest(void *_kv, void *_keynode);
 
 /* Pin/Unpin observability */
 uint64_t priskv_get_pin_ops(void *_kv);
