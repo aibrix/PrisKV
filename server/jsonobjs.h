@@ -65,6 +65,7 @@ typedef struct priskv_kv_info {
     uint64_t expire_kv_bytes;
     /* pin/unpin observability */
     uint64_t pin_ops;
+    uint64_t pin_failed_ops;
     uint64_t unpin_ops;
     uint64_t unpin_not_closed;
     /* TODO(wangyi): Extend with PinTTL metrics once available

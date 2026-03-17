@@ -592,14 +592,13 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
-            /* Atomically publish and optionally pin within KV to remove the window. */
-            status = priskv_publish_node_with_pin(conn->kv, keynode,
-                                                  (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0);
-            /* TODO(wangyi): PinTTL register on SEAL
-             * - If protocol provides per-request TTL (e.g., pin_ttl_ms), register a
-             *   PinOperator with PinManager for this key to ensure eventual cleanup.
-             * - Fallback to server default TTL when not provided.
-             */
+            /* Atomically publish and optionally pin; treat req.timeout as the TTL (ms) for this
+             * pin. */
+            status = priskv_publish_node_with_pin(
+                conn->kv, keynode, (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0,
+                (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) ? timeout : 0);
+            /* TTL registration is handled in the KV layer (publish critical section); no need to
+             * duplicate here. */
             priskv_transport_token_del(conn, token);
             ret = driver->send_response(conn, req->request_id, status, 0, 0, 0);
         }
@@ -619,7 +618,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
              *   the reference acquired by priskv_get_key.
              */
             if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
-                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode);
+                /* Treat req.timeout as the TTL (ms) for this pin. */
+                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode, timeout);
                 if (presp != PRISKV_RESP_STATUS_OK) {
                     /* Atomicity: no token created, drop our reference and return pin's status */
                     priskv_get_key_end(keynode);
@@ -640,10 +640,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             0, 0, 0);
                 break;
             }
-            /* TODO(wangyi): PinTTL register on ACQUIRE
-             * - Register PinOperator with PinManager using request-scoped or default TTL.
-             * - Associate optional request_id for observability.
-             */
+            /* TTL registration is handled in the KV layer (pin path); no need to duplicate here. */
             status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             ret =
                 driver->send_response(conn, req->request_id, status, valuelen, addr_offset, token);
@@ -676,26 +673,22 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
-            /* Enforce RELEASE+UNPIN all-or-nothing semantics when requested:
-             * - If UNPIN_ON_RELEASE is set and unpin fails (e.g., NO_SUCH_KEY / UNPIN_NOT_CLOSED),
-             *   do NOT release the ACQUIRE reference or delete the token. Client can retry.
-             * - Otherwise, proceed to release and delete token, returning OK.
+            /* RELEASE semantics when UNPIN is requested:
+             * - If PRISKV_REQ_FLAG_UNPIN_ON_RELEASE is set and unpin fails (e.g., NO_SUCH_KEY /
+             *   UNPIN_NOT_CLOSED), we currently release the ACQUIRE reference and delete the
+             *   token as a best-effort cleanup, and return the unpin status to the client.
+             * - Otherwise, we release the reference and delete the token, returning OK.
+             * Note: This favors simplicity over retry semantics; adjust if caller requires a
+             *       strict all-or-nothing behavior.
              */
             priskv_resp_status resp = PRISKV_RESP_STATUS_OK;
             if (flags & PRISKV_REQ_FLAG_UNPIN_ON_RELEASE) {
                 resp = priskv_key_unpin_latest(conn->kv, keynode);
-                if (resp != PRISKV_RESP_STATUS_OK) {
-                    /* unpin failed but still cleanup token and reference */
-                    priskv_get_key_end(keynode);
-                    priskv_transport_token_del(conn, token);
-                    ret = driver->send_response(conn, req->request_id, resp, 0, 0, 0);
-                    break;
-                }
             }
             /* Either UNPIN succeeded or not requested: finish RELEASE */
             priskv_get_key_end(keynode);
             priskv_transport_token_del(conn, token);
-            ret = driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_OK, 0, 0, 0);
+            ret = driver->send_response(conn, req->request_id, resp, 0, 0, 0);
         }
         break;
     case PRISKV_COMMAND_DROP:

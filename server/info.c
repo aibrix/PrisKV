@@ -27,7 +27,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/sysinfo.h>
@@ -82,18 +81,9 @@ void priskv_info_get_kv(void *data)
     info->expire_kv_bytes = priskv_get_expire_kv_bytes(kv);
     /* pin/unpin observability */
     info->pin_ops = priskv_get_pin_ops(kv);
+    info->pin_failed_ops = priskv_get_pin_failed_ops(kv);
     info->unpin_ops = priskv_get_unpin_ops(kv);
     info->unpin_not_closed = priskv_get_unpin_not_closed(kv);
-
-    /*
-     * TODO(wangyi): PinTTL observability
-     * - Once PinTTL manager is introduced, expose additional counters here, e.g.:
-     *   - pin_ttl_active: current number of active PinOperator entries
-     *   - pin_ttl_expired: total number of expired PinOperator entries observed
-     *   - pin_ttl_cleanup_ops: total number of successful cleanup-unpin operations
-     *   - pin_ttl_orphaned: number of expiries that found NO_SUCH_KEY or mismatched state
-     * - Also consider exporting a configurable default TTL (kv->pin_ttl_ms) for introspection.
-     */
 }
 
 void priskv_info_get_connection(void *data)

@@ -47,6 +47,7 @@ typedef struct priskv_key {
     pthread_spinlock_t lock;
     uint32_t refcnt;
     uint32_t pin_count; /* number of active pins; protect from eviction */
+    struct timeval pin_ttl; /* node-level pin TTL; valid when pin_count > 0 */
     /* TODO(wangyi): Guard against pin_count overflow
      * - Add warnings when pin_count approaches UINT32_MAX to prevent silent wrap-around.
      * - Consider switching to 64-bit counters if workload can accumulate many long-lived pins.

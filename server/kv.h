@@ -42,6 +42,8 @@ struct priskv_transport_conn;
 typedef struct priskv_transport_conn priskv_transport_conn;
 
 #define PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL 600
+/* Default TTL (ms) for each pin operation if not otherwise specified */
+#define PRISKV_DEFAULT_PIN_TTL_MS 60000
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
@@ -159,32 +161,19 @@ void priskv_key_serialize_exit(struct priskv_tiering_req *completed_req);
 int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
                               uint32_t alloc_length, uint64_t timeout, void **_keynode);
 int priskv_publish_node(void *_kv, void *_keynode);
-/* Atomically publish and optionally pin on publish (for SEAL with PIN). */
-int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish);
+/* Atomically publish and optionally pin; ttl_ms == 0 uses the default TTL. */
+int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish, uint64_t ttl_ms);
 int priskv_drop_node(void *_kv, void *_keynode);
 
 int priskv_key_unpin_latest(void *_kv, void *_keynode);
-/* Pin on the latest version of the key corresponding to keynode */
-int priskv_key_pin_latest(void *_kv, void *_keynode);
+/* Pin on the latest version; ttl_ms==0 uses the default TTL */
+int priskv_key_pin_latest(void *_kv, void *_keynode, uint64_t ttl_ms);
 
 /* Pin/Unpin observability */
 uint64_t priskv_get_pin_ops(void *_kv);
+uint64_t priskv_get_pin_failed_ops(void *_kv);
 uint64_t priskv_get_unpin_ops(void *_kv);
 uint64_t priskv_get_unpin_not_closed(void *_kv);
-
-/*
- * TODO(wangyi): PinManager APIs & metrics
- * - Define PinManager lifecycle APIs:
- *   - priskv_pin_manager_init/_destroy
- *   - priskv_pin_register(key, keylen, ttl_ms, origin, request_id)
- *   - priskv_pin_remove(key, keylen)
- *   - priskv_pin_ttl_cleanup_tick() scheduled via timerfd
- * - Define metrics getters for info panel:
- *   - priskv_get_pin_ttl_active()
- *   - priskv_get_pin_ttl_expired()
- *   - priskv_get_pin_ttl_cleanup_ops()
- *   - priskv_get_pin_ttl_orphaned()
- */
 
 #if defined(__cplusplus)
 }
