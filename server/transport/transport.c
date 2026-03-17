@@ -19,6 +19,7 @@
 #include <pthread.h>
 
 #include "../kv.h"
+#include "../memory.h"
 #include "priskv-config.h"
 #include "priskv-event.h"
 #include "priskv-log.h"
@@ -592,14 +593,11 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
-            /* Atomically publish and optionally pin within KV to remove the window. */
+            /* Atomically publish and optionally pin; treat req.timeout as the TTL (ms) for this pin. */
             status = priskv_publish_node_with_pin(conn->kv, keynode,
-                                                  (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0);
-            /* TODO(wangyi): PinTTL register on SEAL
-             * - If protocol provides per-request TTL (e.g., pin_ttl_ms), register a
-             *   PinOperator with PinManager for this key to ensure eventual cleanup.
-             * - Fallback to server default TTL when not provided.
-             */
+                                                  (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0,
+                                                  (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) ? timeout : 0);
+            /* TTL registration is handled in the KV layer (publish critical section); no need to duplicate here. */
             priskv_transport_token_del(conn, token);
             ret = driver->send_response(conn, req->request_id, status, 0, 0, 0);
         }
@@ -619,7 +617,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
              *   the reference acquired by priskv_get_key.
              */
             if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
-                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode);
+                /* Treat req.timeout as the TTL (ms) for this pin. */
+                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode, timeout);
                 if (presp != PRISKV_RESP_STATUS_OK) {
                     /* Atomicity: no token created, drop our reference and return pin's status */
                     priskv_get_key_end(keynode);
@@ -640,10 +639,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             0, 0, 0);
                 break;
             }
-            /* TODO(wangyi): PinTTL register on ACQUIRE
-             * - Register PinOperator with PinManager using request-scoped or default TTL.
-             * - Associate optional request_id for observability.
-             */
+            /* TTL registration is handled in the KV layer (pin path); no need to duplicate here. */
             status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             ret =
                 driver->send_response(conn, req->request_id, status, valuelen, addr_offset, token);
@@ -689,6 +685,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                     ret = driver->send_response(conn, req->request_id, resp, 0, 0, 0);
                     break;
                 }
+                /* TTL unregistration is handled in the KV layer (unpin path); no need to duplicate here. */
             }
             /* Either UNPIN succeeded or not requested: finish RELEASE */
             priskv_get_key_end(keynode);

@@ -42,6 +42,10 @@ struct priskv_transport_conn;
 typedef struct priskv_transport_conn priskv_transport_conn;
 
 #define PRISKV_KV_DEFAULT_EXPIRE_ROUTINE_INTERVAL 600
+/* Default TTL (ms) for each pin operation if not otherwise specified */
+#define PRISKV_DEFAULT_PIN_TTL_MS 60000
+/* Number of hash buckets for PinTTL manager to reduce lock contention */
+#define PRISKV_PIN_TTL_BUCKETS 64
 
 void *priskv_new_kv(uint8_t *key_base, uint8_t *value_base, int shm_fd, uint64_t shm_len,
                     uint32_t max_keys, uint16_t max_key_length, uint32_t value_block_size,
@@ -159,18 +163,44 @@ void priskv_key_serialize_exit(struct priskv_tiering_req *completed_req);
 int priskv_alloc_node_private(void *_kv, uint8_t *key, uint16_t keylen, uint8_t **val,
                               uint32_t alloc_length, uint64_t timeout, void **_keynode);
 int priskv_publish_node(void *_kv, void *_keynode);
-/* Atomically publish and optionally pin on publish (for SEAL with PIN). */
-int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish);
+/* Atomically publish and optionally pin; ttl_ms == 0 uses the default TTL. */
+int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish,
+                                 uint64_t ttl_ms);
 int priskv_drop_node(void *_kv, void *_keynode);
 
 int priskv_key_unpin_latest(void *_kv, void *_keynode);
-/* Pin on the latest version of the key corresponding to keynode */
-int priskv_key_pin_latest(void *_kv, void *_keynode);
+/* Pin on the latest version; ttl_ms==0 uses the default TTL */
+int priskv_key_pin_latest(void *_kv, void *_keynode, uint64_t ttl_ms);
+
+/* TODO(wangyi): Double-decrement risk between explicit UNPIN and TTL cleanup
+ * - See server/kv.c for details and a proposed consume-before-decrement approach. */
 
 /* Pin/Unpin observability */
 uint64_t priskv_get_pin_ops(void *_kv);
+/* Count of failed PIN attempts (e.g., NO_SUCH_KEY) */
+uint64_t priskv_get_pin_failed_ops(void *_kv);
 uint64_t priskv_get_unpin_ops(void *_kv);
 uint64_t priskv_get_unpin_not_closed(void *_kv);
+
+/* PinTTL manager APIs */
+/* Register a TTL-watched pin for key; ttl_ms==0 uses PRISKV_DEFAULT_PIN_TTL_MS */
+void priskv_pin_ttl_register(void *_kv, const uint8_t *key, uint16_t keylen, uint64_t ttl_ms);
+/* Consume (remove) one TTL entry corresponding to key; when require_expired=true, only
+ * expired entries are consumed. Returns true on success. */
+bool priskv_pin_ttl_unregister_one(void *_kv, const uint8_t *key, uint16_t keylen,
+                                   bool require_expired);
+/* Optional: set default TTL for subsequent pins */
+void priskv_set_default_pin_ttl_ms(void *_kv, uint64_t ttl_ms);
+uint64_t priskv_get_default_pin_ttl_ms(void *_kv);
+
+/* PinTTL metrics getters */
+uint64_t priskv_get_pin_ttl_active(void *_kv);
+uint64_t priskv_get_pin_ttl_expired(void *_kv);
+uint64_t priskv_get_pin_ttl_cleanup_ops(void *_kv);
+uint64_t priskv_get_pin_ttl_orphaned(void *_kv);
+/* Count of failed PinTTL registrations (e.g., OOM) */
+uint64_t priskv_get_pin_ttl_register_failed(void *_kv);
+
 
 /*
  * TODO(wangyi): PinManager APIs & metrics
