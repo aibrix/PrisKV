@@ -31,6 +31,9 @@ pypriskv/priskv.egg-info/
 pypriskv/priskv/*.so
 include/priskv-version.h
 pypriskv/priskv/__pycache__/
+pypriskv/**/__pycache__/
+**/__pycache__/
+*.pyc
 man/priskv-server.1
 .vscode/
 tmp/
