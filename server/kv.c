@@ -107,6 +107,64 @@ typedef struct priskv_kv {
     } pin_stats;
 } priskv_kv;
 
+/*
+ * TODO(wangyi): Implement PinTTL cleanup mechanism
+ *
+ * Context:
+ * - Pin operations (PIN_ON_ACQUIRE, PIN_ON_SEAL) increase pin_count on the latest visible
+ *   version to protect keys from eviction. If a consumer crashes or a request fails, some
+ *   pin operations may never be closed by UNPIN (e.g., RELEASE with UNPIN_ON_RELEASE), leaving
+ *   keys indefinitely pinned.
+ *
+ * Goals:
+ * - Introduce a best-effort TTL-based cleanup for orphaned pins so that keys are eventually
+ *   unpinned when their associated requests are gone.
+ * - Maintain multi-version correctness: UNPIN targets the latest version even if the pin was
+ *   created before a SEAL publish that replaced the visible version.
+ *
+ * Proposed design:
+ * - PinOperator: a lightweight record created on each effective pin, containing:
+ *     - key (bytes + length)
+ *     - creation timestamp (monotonic clock)
+ *     - ttl_ms (configurable per pin or global default)
+ *     - optional origin (ACQUIRE or SEAL) and a debug request_id for observability
+ * - PinManager: per-bucket or global manager storing PinOperator entries in an expiry-ordered
+ *   min-heap or timing-wheel to enable O(logN) insert and efficient batch expiry checks.
+ * - On pin:
+ *     - After pin_count++ on the targeted keynode, create and register a PinOperator.
+ * - On unpin:
+ *     - Remove the corresponding PinOperator (match by key); then decrement pin_count on latest
+ *       version using priskv_key_unpin_latest semantics. Multiple pins on the same key will
+ *       have multiple PinOperator entries.
+ * - On seal (version migration):
+ *     - pin_count is already inherited to the new version; PinOperator records keep referencing
+ *       the key (not the keynode pointer), so no migration is required.
+ * - Scheduling:
+ *     - Reuse expire routine infrastructure (timerfd) to periodically check PinManager and
+ *       perform cleanup for expired entries. Each expired PinOperator triggers
+ *       priskv_key_unpin_latest(kv, old_keynode_of_record) on the latest version by key.
+ *     - Consider sharding the PinManager by hash-bucket index to minimize global contention.
+ * - Concurrency & locking:
+ *     - PinOperator insert/remove should use per-bucket spinlocks consistent with hash-head
+ *       protection, avoiding deadlocks by keeping lock order (manager lock -> keynode lock).
+ * - Configuration:
+ *     - Provide a global default TTL (e.g., kv->pin_ttl_ms) and allow per-request override via
+ *       request flags or auxiliary fields in the protocol header (future extension).
+ * - Observability & safeguards:
+ *     - Export counters: pin_ttl_active, pin_ttl_expired, pin_ttl_cleanup_ops, pin_ttl_orphaned.
+ *     - Cap the maximum number of active PinOperator entries to prevent memory blow-up; when
+ *       exceeding the cap, log warnings and fallback to immediate unpin or refuse new pins.
+ * - Recovery:
+ *     - PinTTL metadata is best-effort and may be non-persistent. After restart, keys might
+ *       remain pinned by pin_count; scheduled cleanup resumes with new PinOperator records for
+ *       future pins. Persistent logging can be considered if stronger guarantees are needed.
+ *
+ * Next steps:
+ * - Add PinManager data structures and lifecycle APIs.
+ * - Integrate with pin/unpin paths and expire routine scheduling.
+ * - Extend info endpoints to expose PinTTL metrics.
+ */
+
 static void priskv_lru_access(priskv_key *keynode, bool is_in_list)
 {
     priskv_kv *kv = keynode->kv;
@@ -937,6 +995,23 @@ int priskv_drop_node(void *_kv, void *_keynode)
     return PRISKV_RESP_STATUS_OK;
 }
 
+/* Increment pin_count on the given keynode. */
+int priskv_key_pin(void *_kv, void *_keynode)
+{
+    priskv_kv *kv = (priskv_kv *)_kv;
+    priskv_key *keynode = (priskv_key *)_keynode;
+    if (!keynode) {
+        return PRISKV_RESP_STATUS_SERVER_ERROR;
+    }
+    pthread_spin_lock(&keynode->lock);
+    keynode->pin_count++;
+    pthread_spin_unlock(&keynode->lock);
+    if (kv) {
+        kv->pin_stats.pin_ops++;
+    }
+    return PRISKV_RESP_STATUS_OK;
+}
+
 /* Decrement pin_count on the latest version of the key corresponding to keynode. */
 int priskv_key_unpin_latest(void *_kv, void *_keynode)
 {
@@ -954,10 +1029,10 @@ int priskv_key_unpin_latest(void *_kv, void *_keynode)
     priskv_resp_status resp = priskv_pin_count_delta_latest(kv, node->key, node->keylen, -1, 0);
 
     /* Stats: count every UNPIN attempt; record not-closed cases. */
-        __sync_fetch_and_add(&kv->pin_stats.unpin_ops, 1);
-        if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
-            __sync_fetch_and_add(&kv->pin_stats.unpin_not_closed, 1);
-        }
+    __sync_fetch_and_add(&kv->pin_stats.unpin_ops, 1);
+    if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
+        __sync_fetch_and_add(&kv->pin_stats.unpin_not_closed, 1);
+    }
     if (resp != PRISKV_RESP_STATUS_OK) {
         priskv_log_warn("KV: UNPIN_LATEST status=%d for node=%p (len=%u)\n", resp, (void *)node,
                         node->keylen);

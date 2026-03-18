@@ -15,6 +15,7 @@
 #include "priskv-config.h"
 #include "priskv-log.h"
 #include <pthread.h>
+#include <string.h>
 
 static const char *priskv_transport_backend_names[] = {[PRISKV_TRANSPORT_BACKEND_RDMA] = "RDMA",
                                                        [PRISKV_TRANSPORT_BACKEND_UCX] = "UCX",
@@ -152,7 +153,8 @@ void priskv_config_init(void)
 ucs_status_t priskv_config_parser_fill_opts(void *opts, ucs_config_global_list_entry_t *entry,
                                             const char *env_prefix, int ignore_errors)
 {
-    return ucs_config_parser_fill_opts(opts, entry, env_prefix, ignore_errors);
+    /* UCX v1.12+: ucs_config_parser_fill_opts(opts, fields, env_prefix, table_prefix, ignore_errors) */
+    return ucs_config_parser_fill_opts(opts, entry->table, env_prefix, entry->prefix, ignore_errors);
 }
 
 void priskv_config_parser_release_opts(void *opts, ucs_config_field_t *fields)
@@ -163,6 +165,6 @@ void priskv_config_parser_release_opts(void *opts, ucs_config_field_t *fields)
 ucs_status_t priskv_config_parser_set_value(void *opts, ucs_config_field_t *fields,
                                             const char *prefix, const char *name, const char *value)
 {
-
-    return ucs_config_parser_set_value(opts, fields, prefix, name, value);
+    (void)prefix;
+    return ucs_config_parser_set_value(opts, fields, name, value);
 }

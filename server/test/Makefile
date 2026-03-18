@@ -33,7 +33,7 @@ ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
 CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
-.PHONY: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS)
+.PHONY: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS) $(TEST_KV_PIN_TTL)
 OBJS = ../memory.o ../kv.o ../slab.o ../crc.o ../acl.o
 
 all: $(TEST_BUDDY) ${TEST_BUDDY_MT} $(TEST_SLAB) $(TEST_SLAB_MT) $(TEST_KV) $(TEST_KV_MT) $(TEST_TRANSPORT) $(TEST_MEMORY) $(TEST_ACL) $(TEST_KV_EXPIRE_ROUTINE) $(TEST_BE_REDIS) $(TEST_KV_PIN_TTL)
@@ -87,7 +87,6 @@ else
 $(TEST_KV_EXPIRE_ROUTINE):
 	@echo "UCX not available, skip $(TEST_KV_EXPIRE_ROUTINE)"
 endif
-
 ifeq ($(shell pkg-config --exists ucx; echo $$?),0)
 $(TEST_KV_PIN_TTL): $(OBJS)
 	$(CC) test_kv_pin_ttl.c ../../lib/workqueue.c ../../lib/threads.c ../../lib/event.c ../../lib/ucx.c ../../lib/config.c ../memory.c ../kv.c ../slab.c ../buddy.c ../crc.c ../../lib/log.c ../backend/backend.c ../transport/transport.c ../transport/rdma.c ../transport/ucx.c ../tiering.c ../acl.c $(CFLAGS) $(UCX_CFLAGS) -o $(TEST_KV_PIN_TTL) -lmount -lpthread -lrdmacm -libverbs $(UCX_LIBS)
@@ -95,7 +94,6 @@ else
 $(TEST_KV_PIN_TTL):
 	@echo "UCX not available, skip $(TEST_KV_PIN_TTL)"
 endif
-
 
 $(TEST_BE_REDIS):
 	$(CC) test_be_redis.c ../../lib/log.c ../../lib/event.c ../../lib/workqueue.c ../../lib/threads.c ../backend/backend.c ../backend/be_redis.c $(CFLAGS) -o $(TEST_BE_REDIS) -levent -lhiredis

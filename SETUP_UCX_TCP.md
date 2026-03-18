@@ -29,6 +29,8 @@ apt-get install -y \
 ### Python build tooling
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip3 install pybind11 yapf==0.32.0
 ```
 
@@ -39,7 +41,7 @@ If you are running as `root` inside a container, `sudo` is usually not required.
 ## 1. Prepare the source tree
 
 ```bash
-cd /workspace/priskv
+cd /PrisKV
 ```
 
 If the repository uses submodules (e.g., `json-c`), initialize them:
@@ -55,14 +57,14 @@ git submodule update --init --recursive
 Recommended: build everything once, then rebuild server if needed:
 
 ```bash
-cd /workspace/priskv/PrisKV
+cd /PrisKV
 make
 ```
 
-Or build only the server:
+Or build only the server (preferred if build without RDMA):
 
 ```bash
-cd /workspace/priskv/PrisKV
+cd /PrisKV
 make server
 ```
 
@@ -73,14 +75,14 @@ make server
 If you use a virtual environment (recommended), activate it first:
 
 ```bash
-source /workspace/priskv/.venv/bin/activate
+source .venv/bin/activate
 pip install -U pip setuptools wheel
 ```
 
 ### Option A: Editable install (recommended for development)
 
 ```bash
-cd /workspace/priskv/PrisKV
+cd /PrisKV
 make all
 cd pypriskv
 pip install -v -e .
@@ -89,7 +91,7 @@ pip install -v -e .
 ### Option B: Install from wheel
 
 ```bash
-cd /workspace/priskv/PrisKV
+cd /PrisKV
 make all
 cd pypriskv
 python3 setup.py build_ext bdist_wheel
@@ -125,7 +127,7 @@ export PRISKV_LOG_LEVEL=notice
 ## 5. Start `priskv-server` (UCX TCP)
 
 ```bash
-cd /workspace/priskv/PrisKV
+cd /PrisKV
 export PRISKV_TRANSPORT=ucx
 export UCX_TLS=tcp
 export PRISKV_CLIENT_DIRECT_MODE=y
@@ -144,7 +146,7 @@ Expected server log includes:
 Activate your venv:
 
 ```bash
-source /workspace/priskv/.venv/bin/activate
+source .venv/bin/activate
 ```
 
 Then run a minimal connectivity check:

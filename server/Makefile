@@ -38,12 +38,18 @@ else
 CFLAGS += -O0
 endif
 
+ifneq (,$(filter $(WITH_RDMA),yes YES y Y 1))
+CFLAGS += -DWITH_RDMA
+else
+RDMA_EXCLUDE = ./rdma.c ./transport/rdma.c
+endif
+
 PRISKV_BINPATH = usr/bin
 PRISKV_MANPATH = usr/share/man
 
 PRISKV_SERVER_TARGETS = priskv-server priskv-memfile
 PRISKV_SERVER_TARGETS_SRCS = $(patsubst priskv-%, ./%.c, $(PRISKV_SERVER_TARGETS))
-PRISKV_SERVER_SRCS = $(filter-out $(PRISKV_SERVER_TARGETS_SRCS), $(shell find . -path ./test -prune -o -name "*.c" -print))
+PRISKV_SERVER_SRCS = $(filter-out $(PRISKV_SERVER_TARGETS_SRCS) $(RDMA_EXCLUDE), $(shell find . -path ./test -prune -o -name "*.c" -print))
 PRISKV_SERVER_OBJS := $(PRISKV_SERVER_SRCS:%.c=%.o)
 PRISKV_SERVER_DEPS := $(PRISKV_SERVER_OBJS:%.o=%.d)
 

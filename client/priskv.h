@@ -162,9 +162,10 @@ int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_le
 int priskv_seal_async(priskv_client *client, const uint64_t *token, bool pin_on_seal,
                       uint64_t pin_ttl_ms, uint64_t request_id, priskv_generic_cb cb);
 
-/* Acquire memory region for zero copy read (pin_ttl_ms is PIN TTL in ms; 0 uses server default) */
-int priskv_acquire_async(priskv_client *client, const char *key, bool pin_on_acquire,
-                         uint64_t pin_ttl_ms, uint64_t request_id, priskv_generic_cb cb);
+/* Acquire: @timeout is key/op timeout for transport; @pin_ttl_ms is PIN TTL (0 = server default). */
+int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
+                         bool pin_on_acquire, uint64_t pin_ttl_ms, uint64_t request_id,
+                         priskv_generic_cb cb);
 
 /* Release memory region (by token pointer, reuse key field) */
 int priskv_release_async(priskv_client *client, const uint64_t *token, bool unpin_on_release,
@@ -224,9 +225,8 @@ int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, 
 int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal,
                 uint64_t pin_ttl_ms);
 
-int priskv_acquire(priskv_client *client, const char *key, bool pin_on_acquire, uint64_t pin_ttl_ms,
-                   priskv_memory_region *region);
-
+int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
+                   bool pin_on_acquire, uint64_t pin_ttl_ms, priskv_memory_region *region);
 int priskv_release(priskv_client *client, const uint64_t *token, bool unpin_on_release);
 
 int priskv_drop(priskv_client *client, const uint64_t *token);

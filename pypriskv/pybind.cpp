@@ -139,12 +139,13 @@ std::tuple<int, uint64_t> priskv_alloc_wrapper(uintptr_t client, std::string key
 }
 
 std::tuple<int, uint64_t, uint32_t> priskv_acquire_wrapper(uintptr_t client, std::string key,
-                                                           uint64_t pin_ttl_ms, bool pin_on_acquire)
+                                                           uint64_t timeout, bool pin_on_acquire,
+                                                           uint64_t pin_ttl_ms)
 {
 
     uint64_t addr_offset = 0;
     uint32_t value_length = 0;
-    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), 0 /* timeout */,
+    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), timeout,
                                    pin_on_acquire, pin_ttl_ms, &addr_offset, &value_length);
     return {ret, addr_offset, value_length};
 }
@@ -327,18 +328,17 @@ PYBIND11_MODULE(_priskv_client, m)
 
     m.def(
         "acquire",
-        [](uintptr_t client, std::string key, bool pin_on_acquire, uint64_t pin_ttl_ms) {
+        [](uintptr_t client, std::string key, uint64_t timeout, bool pin_on_acquire,
+           uint64_t pin_ttl_ms) {
             priskv_memory_region region {0};
-            /* Pass timeout=0 and explicit pin_ttl_ms */
-            int ret =
-                priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(),
-                                           0 /* timeout */, pin_on_acquire, pin_ttl_ms, &region);
+            int ret = priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(), timeout,
+                                                 pin_on_acquire, pin_ttl_ms, &region);
             return py::make_tuple(ret, region);
         },
-        py::arg("client"), py::arg("key"), py::arg("pin_on_acquire") = false, 
-				py::arg("pin_ttl_ms") = 0,
-        "A function to acquire memory region for read; when PIN is requested, pin_ttl_ms sets TTL "
-        "in ms (0 uses server default).");
+        py::arg("client"), py::arg("key"), py::arg("timeout") = PRISKV_KEY_MAX_TIMEOUT,
+        py::arg("pin_on_acquire") = false, py::arg("pin_ttl_ms") = 0,
+        "A function to acquire memory region for read; timeout is transport/key timeout; "
+        "pin_ttl_ms is PIN TTL when pin_on_acquire is true (0 uses server default).");
 
     m.def(
         "release",

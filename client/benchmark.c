@@ -996,8 +996,9 @@ static void priskv_drv_get(void *ctx, const char *key, void *value, uint32_t val
         zctx->value = value;
         zctx->value_len = value_len;
         priskv_ctx->job->last_stage = "ACQUIRE";
-        priskv_acquire_async(priskv_ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, false /* pin_on_acquire */,
-                             (uint64_t)zctx, zc_acquire_cb);
+        priskv_acquire_async(priskv_ctx->client, key, PRISKV_KEY_MAX_TIMEOUT,
+                             false /* pin_on_acquire */, 0 /* pin_ttl_ms */, (uint64_t)zctx,
+                             zc_acquire_cb);
         return;
     }
     /* Remove duplicate ZeroCopy GET branch */

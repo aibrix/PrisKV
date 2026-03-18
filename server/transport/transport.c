@@ -38,7 +38,9 @@ priskv_transport_server g_transport_server = {
 bool priskv_test_token_add_fail_once = false;
 
 extern priskv_transport_driver priskv_transport_driver_ucx;
+#ifdef WITH_RDMA
 extern priskv_transport_driver priskv_transport_driver_rdma;
+#endif
 
 uint32_t g_slow_query_threshold_latency_us = SLOW_QUERY_THRESHOLD_LATENCY_US;
 
@@ -60,10 +62,12 @@ static void __attribute__((constructor)) priskv_server_transport_init(void)
         driver = &priskv_transport_driver_ucx;
         priskv_log_notice("Using UCX transport backend\n");
         break;
+#ifdef WITH_RDMA
     case PRISKV_TRANSPORT_BACKEND_RDMA:
         driver = &priskv_transport_driver_rdma;
         priskv_log_notice("Using RDMA transport backend\n");
         break;
+#endif
     default:
         priskv_log_error("Unknown transport backend: %d\n", backend);
         break;
@@ -310,18 +314,35 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         return -EPROTO;
     }
 
-    keylen = len - keyoff;
+    /* UCX callback's `length` may be unreliable under some UCX versions.
+     * Rely on the protocol header's key_length instead of deriving it from `len`. */
+    keylen = be16toh(req->key_length);
+
     if (!keylen) {
-        priskv_log_warn("Transport: <%s - %s> empty key. recv %d, less than %d, nsgl 0x%x\n",
+        priskv_log_warn("Transport: <%s - %s> empty key. len(%u) keyoff(%u) nsgl 0x%x\n",
                         conn->local_addr, conn->peer_addr, len, keyoff, nsgl);
 
         driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_EMPTY, 0, 0, 0);
         return -EPROTO;
     }
 
+    /* Optional sanity check: if UCX `len` is sane and smaller than what we expect, treat as protocol error. */
+    if (len != 0 && len < (uint32_t)(keyoff + keylen)) {
+        priskv_log_warn("Transport: <%s - %s> invalid key. recv len(%u) < keyoff(%u)+keylen(%u)\n",
+                        conn->local_addr, conn->peer_addr, len, keyoff, keylen);
+        driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_INVALID_COMMAND, 0, 0, 0);
+        return -EPROTO;
+    }
+
     if (keylen > conn->conn_cap.max_key_length) {
-        priskv_log_warn("Transport: <%s - %s> invalid key. key(%d) exceeds max_key_length(%d)\n",
-                        conn->local_addr, conn->peer_addr, keylen, conn->conn_cap.max_key_length);
+        uint16_t raw_key_length = be16toh(req->key_length);
+        uint16_t raw_nsgl = be16toh(req->nsgl);
+        uint32_t raw_alloc_length = be32toh(req->alloc_length);
+        priskv_log_warn(
+            "Transport: <%s - %s> invalid key. len(%u) keyoff(%u) keylen(%u) "
+            "key_length(%u) nsgl(%u) alloc_length(%u) exceeds max_key_length(%u)\n",
+            conn->local_addr, conn->peer_addr, len, keyoff, keylen, raw_key_length, raw_nsgl,
+            raw_alloc_length, conn->conn_cap.max_key_length);
         driver->send_response(conn, req->request_id, PRISKV_RESP_STATUS_KEY_TOO_BIG, 0, 0, 0);
         return -EPROTO;
     }
@@ -593,14 +614,10 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
-            /* Atomically publish and optionally pin; treat req.timeout as the TTL (ms) for this
-             * pin. */
-            /* Use pin_ttl_ms; 0 means default TTL. Only read TTL when pin_on_seal is set. */
+            /* Atomically publish and optionally pin; pin_ttl_ms 0 means default TTL. */
             status = priskv_publish_node_with_pin(
                 conn->kv, keynode, (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0,
                 (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) ? pin_ttl_ms : 0);
-            /* TTL registration is handled in the KV layer (publish critical section); no need to
-             * duplicate here. */
             priskv_transport_token_del(conn, token);
             ret = driver->send_response(conn, req->request_id, status, 0, 0, 0);
         }
@@ -614,26 +631,18 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
         }
         {
             uint64_t addr_offset = 0;
-            /* Enforce ACQUIRE+PIN all-or-nothing semantics when requested:
-             * - If PIN_ON_ACQUIRE is set, attempt to pin the latest visible version first.
-             * - If pin fails (e.g., key deleted concurrently), fail the whole ACQUIRE and release
-             *   the reference acquired by priskv_get_key.
-             */
+            /* Enforce ACQUIRE+PIN all-or-nothing semantics when requested. */
             if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
-                /* Use pin_ttl_ms; 0 means default TTL. */
                 priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode, pin_ttl_ms);
                 if (presp != PRISKV_RESP_STATUS_OK) {
-                    /* Atomicity: no token created, drop our reference and return pin's status */
                     priskv_get_key_end(keynode);
                     ret = driver->send_response(conn, req->request_id, presp, 0, 0, 0);
                     break;
                 }
             }
 
-            /* Create token only after (optional) pin succeeds to keep ACQUIRE+PIN atomic */
             uint64_t token = priskv_transport_token_add(conn, keynode, PRISKV_TOKEN_TYPE_ACQUIRE);
             if (!token) {
-                /* Roll back pin if we pinned, then release the key reference */
                 if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
                     (void)priskv_key_unpin_latest(conn->kv, keynode);
                 }
@@ -642,7 +651,6 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             0, 0, 0);
                 break;
             }
-            /* TTL registration is handled in the KV layer (pin path); no need to duplicate here. */
             status = priskv_value_addr_offset(conn->kv, val, &addr_offset);
             ret =
                 driver->send_response(conn, req->request_id, status, valuelen, addr_offset, token);
@@ -675,19 +683,10 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
                                             PRISKV_RESP_STATUS_PERMISSION_DENIED, 0, 0, 0);
                 break;
             }
-            /* RELEASE semantics when UNPIN is requested:
-             * - If PRISKV_REQ_FLAG_UNPIN_ON_RELEASE is set and unpin fails (e.g., NO_SUCH_KEY /
-             *   UNPIN_NOT_CLOSED), we currently release the ACQUIRE reference and delete the
-             *   token as a best-effort cleanup, and return the unpin status to the client.
-             * - Otherwise, we release the reference and delete the token, returning OK.
-             * Note: This favors simplicity over retry semantics; adjust if caller requires a
-             *       strict all-or-nothing behavior.
-             */
             priskv_resp_status resp = PRISKV_RESP_STATUS_OK;
             if (flags & PRISKV_REQ_FLAG_UNPIN_ON_RELEASE) {
                 resp = priskv_key_unpin_latest(conn->kv, keynode);
             }
-            /* Either UNPIN succeeded or not requested: finish RELEASE */
             priskv_get_key_end(keynode);
             priskv_transport_token_del(conn, token);
             ret = driver->send_response(conn, req->request_id, resp, 0, 0, 0);

@@ -190,12 +190,11 @@ int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal, 
     return req_sync.status;
 }
 
-int priskv_acquire(priskv_client *client, const char *key, bool pin_on_acquire, uint64_t pin_ttl_ms,
-                   priskv_memory_region *region)
+int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
+                   bool pin_on_acquire, uint64_t pin_ttl_ms, priskv_memory_region *region)
 {
     priskv_transport_zero_copy_req_sync req_sync = {.status = 0xffff, .done = false};
-    /* pin_ttl_ms is per-request PIN TTL in ms; 0 uses server default */
-    priskv_acquire_async(client, key, pin_on_acquire, pin_ttl_ms, (uint64_t)&req_sync,
+    priskv_acquire_async(client, key, timeout, pin_on_acquire, pin_ttl_ms, (uint64_t)&req_sync,
                          priskv_zero_copy_req_sync_cb);
 
     priskv_sync_wait(client, &req_sync.done);

@@ -83,11 +83,12 @@ class PriskvClient:
 
     def acquire(self,
             key: str,
-            pin_ttl_ms: int = 0,
+            timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
             pin_on_acquire: bool = False,
+            pin_ttl_ms: int = 0,
             ) -> Tuple[int, client.MemoryRegion]:
-        """Acquire zero-copy read region. When pin_on_acquire is True, pin_ttl_ms specifies the PIN TTL in milliseconds; 0 means server default."""
-        status, region = client.acquire(self.conn, key, pin_on_acquire, pin_ttl_ms)
+        """Acquire: timeout is transport/key timeout; pin_ttl_ms is PIN TTL when pin_on_acquire is True."""
+        status, region = client.acquire(self.conn, key, timeout, pin_on_acquire, pin_ttl_ms)
         return status, region
     
     def release(self,

@@ -275,7 +275,8 @@ static void get_handler_base(client_context *ctx, char *args, bool acquire)
         priskv_memory_region region = {0};
         printf("ACQUIRE key=%s\n", key);
         /* Do not pin on acquire by default from CLI */
-        status = priskv_acquire(ctx->client, key, false, 0 /* pin_ttl_ms */, &region);
+        status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, false, 0 /* pin_ttl_ms */,
+                                &region);
         if (status != PRISKV_STATUS_OK) {
             printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
             return;
@@ -477,7 +478,8 @@ static void acquire_only_handler(client_context *ctx, char *args)
 
     /* Align output field name with CLI flag semantics */
     printf("ACQUIRE key=%s [PIN=%d, TTL(ms)=%" PRIu64 "]\n", key, pin_on_acquire, pin_ttl_ms);
-    status = priskv_acquire(ctx->client, key, pin_on_acquire, pin_ttl_ms, &region);
+    status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, pin_on_acquire, pin_ttl_ms,
+                            &region);
     printf("ACQUIRE status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
            priskv_status_str(status), (void *)region.addr, region.length, region.token);
     if (status == PRISKV_STATUS_OK) {

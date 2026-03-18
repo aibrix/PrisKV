@@ -33,7 +33,14 @@ VALKEY_LDFLAGS = -I$(VALKEY_INCLUDE_PATH)
 PRISKV_TARGETS_ALL = priskv-client priskv-benchmark priskv-example priskv-test_runtime
 PRISKV_TARGETS = priskv-client priskv-benchmark
 PRISKV_TARGETS_SRCS = $(patsubst priskv-%, %.c, $(PRISKV_TARGETS_ALL))
-SRCS = $(filter-out $(PRISKV_TARGETS_SRCS) $(VALKEY_BENCHMARK_SRC), $(wildcard *.c transport/*.c))
+
+ifneq (,$(filter $(WITH_RDMA),yes YES y Y 1))
+CFLAGS += -DWITH_RDMA
+else
+RDMA_EXCLUDE = rdma.c transport/rdma.c
+endif
+
+SRCS = $(filter-out $(PRISKV_TARGETS_SRCS) $(VALKEY_BENCHMARK_SRC) $(RDMA_EXCLUDE), $(wildcard *.c transport/*.c))
 OBJS := $(SRCS:%.c=%.o)
 DEPS := $(OBJS:%.o=%.d)
 

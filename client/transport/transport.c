@@ -37,7 +37,9 @@
 priskv_transport_driver *g_client_driver = NULL;
 
 extern priskv_transport_driver priskv_transport_driver_ucx;
+#ifdef WITH_RDMA
 extern priskv_transport_driver priskv_transport_driver_rdma;
+#endif
 
 static int priskv_build_check(void)
 {
@@ -73,10 +75,12 @@ static void __attribute__((constructor)) priskv_client_transport_init(void)
         driver = &priskv_transport_driver_ucx;
         priskv_log_notice("Using UCX transport backend\n");
         break;
+#ifdef WITH_RDMA
     case PRISKV_TRANSPORT_BACKEND_RDMA:
         driver = &priskv_transport_driver_rdma;
         priskv_log_notice("Using RDMA transport backend\n");
         break;
+#endif
     default:
         priskv_log_error("Unknown transport backend: %d\n", backend);
         break;
@@ -429,17 +433,16 @@ int priskv_seal_async(priskv_client *client, const uint64_t *token, bool pin_on_
 {
     uint32_t flags = pin_on_seal ? PRISKV_REQ_FLAG_PIN_ON_SEAL : 0;
     priskv_send_command(client, request_id, (const char *)token, 0 /* alloc_length */, NULL, 0,
-                        0 /* key_expiry_timeout */, pin_ttl_ms /* pin_ttl_ms */,
-                        PRISKV_COMMAND_SEAL, flags, cb);
+                        0 /* key_expiry_timeout */, pin_ttl_ms, PRISKV_COMMAND_SEAL, flags, cb);
     return 0;
 }
 
-int priskv_acquire_async(priskv_client *client, const char *key, bool pin_on_acquire,
-                         uint64_t pin_ttl_ms, uint64_t request_id, priskv_generic_cb cb)
+int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
+                         bool pin_on_acquire, uint64_t pin_ttl_ms, uint64_t request_id,
+                         priskv_generic_cb cb)
 {
     uint32_t flags = pin_on_acquire ? PRISKV_REQ_FLAG_PIN_ON_ACQUIRE : 0;
-    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0,
-                        0 /* key_expiry_timeout */, pin_ttl_ms /* pin_ttl_ms */,
+    priskv_send_command(client, request_id, key, 0 /* alloc_length */, NULL, 0, timeout, pin_ttl_ms,
                         PRISKV_COMMAND_ACQUIRE, flags, cb);
     return 0;
 }

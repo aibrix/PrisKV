@@ -205,8 +205,8 @@ ucs_status_t priskv_ucx_munmap(priskv_ucx_memh *memh)
     }
 
     if (memh->rkey_buffer) {
-        ucp_memh_buffer_release_params_t params = {.field_mask = 0};
-        ucp_memh_buffer_release(memh->rkey_buffer, &params);
+        /* Packed RKEY buffer release (UCX 1.12+). */
+        ucp_rkey_buffer_release(memh->rkey_buffer);
         memh->rkey_buffer = NULL;
     }
     ucp_mem_unmap(memh->context->handle, memh->handle);
@@ -255,7 +255,10 @@ priskv_ucx_worker *priskv_ucx_worker_create(priskv_ucx_context *context, uint64_
         worker->efd = -1;
     }
 
-    status = ucp_worker_get_address(worker->handle, &worker->address, &worker->address_len);
+    /* UCX uses size_t* for address length; wire format uses uint32_t. */
+    size_t addr_len = 0;
+    status = ucp_worker_get_address(worker->handle, &worker->address, &addr_len);
+    worker->address_len = (uint32_t)addr_len;
     PRISKV_UCX_RETURN_IF_ERROR(
         status, "priskv_ucx_worker_init: failed to get address", { free(worker); }, NULL);
 
@@ -497,7 +500,8 @@ static ucs_status_ptr_t priskv_ucx_post_tag_recv(priskv_ucx_worker *worker, pris
 
     ucp_request_param_t param = {.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK |
                                                  UCP_OP_ATTR_FIELD_DATATYPE |
-                                                 UCP_OP_ATTR_FIELD_USER_DATA,
+                                                 UCP_OP_ATTR_FIELD_USER_DATA |
+                                                 UCP_OP_ATTR_FIELD_RECV_INFO,
                                  .datatype = ucp_dt_make_contig(1),
                                  .cb.recv = priskv_ucx_request_tag_recv_cb_intl,
                                  .user_data = request};
