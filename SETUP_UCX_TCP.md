@@ -23,7 +23,8 @@ apt-get install -y \
   dpkg-dev debhelper \
   pkg-config \
   python3-pybind11 python3-dev python3-pip \
-  libonig-dev libhiredis-dev liburing-dev
+  libonig-dev libhiredis-dev liburing-dev \
+  libucx-dev libucx0
 ```
 
 ### Python build tooling
@@ -85,7 +86,7 @@ pip install -U pip setuptools wheel
 cd /PrisKV
 make all
 cd pypriskv
-pip install -v -e .
+pip install --no-build-isolation -v -e .
 ```
 
 ### Option B: Install from wheel
@@ -127,6 +128,7 @@ export PRISKV_LOG_LEVEL=notice
 ## 5. Start `priskv-server` (UCX TCP)
 
 ```bash
+source .venv/bin/activate
 cd /PrisKV
 export PRISKV_TRANSPORT=ucx
 export UCX_TLS=tcp
