@@ -121,6 +121,7 @@ typedef struct priskv_request_runtime {
 typedef struct priskv_request {
     uint64_t request_id;
     uint64_t timeout; /* in ms */
+    uint64_t pin_ttl_ms; /* in ms: 0 uses server default TTL; >0 uses explicit TTL */
     uint16_t command; /* priskv_req_command */
     uint32_t flags;   /* request behavior flags (big-endian on wire) */
     uint16_t nsgl; /* how many SGL contains following */

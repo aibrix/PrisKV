@@ -1152,6 +1152,7 @@ priskv_rdma_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t
     rdma_req->main_wq = client->wq;
     rdma_req->cmd = cmd;
     rdma_req->timeout = timeout;
+    rdma_req->pin_ttl_ms = 0; /* default: not set */
     rdma_req->key = strdup(key);
     rdma_req->keylen = keylen;
     rdma_req->request_id = request_id;
@@ -1256,6 +1257,7 @@ static int priskv_rdma_req_send(void *arg)
     req->command = htobe16(rdma_req->cmd);
     req->nsgl = htobe16(rdma_req->nsgl);
     req->timeout = htobe64(rdma_req->timeout);
+    req->pin_ttl_ms = htobe64(rdma_req->pin_ttl_ms);
     req->flags = htobe32(rdma_req->req_flags);
     req->key_length = htobe16(rdma_req->keylen);
 

@@ -287,6 +287,7 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
     uint32_t flags = be32toh(req->flags);
     uint16_t nsgl = be16toh(req->nsgl);
     uint64_t timeout = be64toh(req->timeout);
+    uint64_t pin_ttl_ms = be64toh(req->pin_ttl_ms);
     uint32_t alloc_length = be32toh(req->alloc_length);
     uint8_t *key;
     uint16_t keylen;
@@ -594,9 +595,10 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
             }
             /* Atomically publish and optionally pin; treat req.timeout as the TTL (ms) for this
              * pin. */
+            /* Use pin_ttl_ms; 0 means default TTL. Only read TTL when pin_on_seal is set. */
             status = priskv_publish_node_with_pin(
                 conn->kv, keynode, (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) != 0,
-                (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) ? timeout : 0);
+                (flags & PRISKV_REQ_FLAG_PIN_ON_SEAL) ? pin_ttl_ms : 0);
             /* TTL registration is handled in the KV layer (publish critical section); no need to
              * duplicate here. */
             priskv_transport_token_del(conn, token);
@@ -618,8 +620,8 @@ int priskv_transport_handle_recv(priskv_transport_conn *conn, priskv_request *re
              *   the reference acquired by priskv_get_key.
              */
             if (flags & PRISKV_REQ_FLAG_PIN_ON_ACQUIRE) {
-                /* Treat req.timeout as the TTL (ms) for this pin. */
-                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode, timeout);
+                /* Use pin_ttl_ms; 0 means default TTL. */
+                priskv_resp_status presp = priskv_key_pin_latest(conn->kv, keynode, pin_ttl_ms);
                 if (presp != PRISKV_RESP_STATUS_OK) {
                     /* Atomicity: no token created, drop our reference and return pin's status */
                     priskv_get_key_end(keynode);

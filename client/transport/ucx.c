@@ -1235,6 +1235,7 @@ priskv_ucx_req_new(priskv_client *client, priskv_transport_conn *conn, uint64_t 
     ucx_req->main_wq = client->wq;
     ucx_req->cmd = cmd;
     ucx_req->timeout = timeout;
+    ucx_req->pin_ttl_ms = 0; /* default: not set */
     /* For SEAL/RELEASE/DROP, the key is not a string but a binary token with fixed length keylen */
     ucx_req->keylen = keylen;
     ucx_req->key = malloc(keylen);
@@ -1365,6 +1366,7 @@ static int priskv_ucx_send_req(void *arg)
     req->command = htobe16(ucx_req->cmd);
     req->nsgl = htobe16(ucx_req->nsgl);
     req->timeout = htobe64(ucx_req->timeout);
+    req->pin_ttl_ms = htobe64(ucx_req->pin_ttl_ms);
     req->flags = htobe32(ucx_req->req_flags);
     req->key_length = htobe16(ucx_req->keylen);
     req->alloc_length = htobe32(ucx_req->alloc_length);

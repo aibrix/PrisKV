@@ -139,13 +139,13 @@ std::tuple<int, uint64_t> priskv_alloc_wrapper(uintptr_t client, std::string key
 }
 
 std::tuple<int, uint64_t, uint32_t> priskv_acquire_wrapper(uintptr_t client, std::string key,
-                                                           uint64_t timeout, bool pin_on_acquire)
+                                                           uint64_t pin_ttl_ms, bool pin_on_acquire)
 {
 
     uint64_t addr_offset = 0;
     uint32_t value_length = 0;
-    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), timeout,
-                                   pin_on_acquire, &addr_offset, &value_length);
+    int ret = priskvClusterAcquire((priskvClusterClient *)client, key.c_str(), 0 /* timeout */,
+                                   pin_on_acquire, pin_ttl_ms, &addr_offset, &value_length);
     return {ret, addr_offset, value_length};
 }
 
@@ -315,22 +315,30 @@ PYBIND11_MODULE(_priskv_client, m)
 
     m.def(
         "seal",
-        [](uintptr_t client, std::string key, const priskv_memory_region &region, bool pin_on_seal) {
-            return (int)priskvClusterSeal((priskvClusterClient *)client, key.c_str(), &region.token, pin_on_seal);
+        [](uintptr_t client, std::string key, const priskv_memory_region &region, bool pin_on_seal,
+           uint64_t pin_ttl_ms) {
+            return (int)priskvClusterSeal((priskvClusterClient *)client, key.c_str(), &region.token,
+                                          pin_on_seal, pin_ttl_ms);
         },
         py::arg("client"), py::arg("key"), py::arg("region"), py::arg("pin_on_seal") = false,
-        "A function to seal memory region of val.");
+        py::arg("pin_ttl_ms") = 0,
+        "A function to seal memory region of val with optional PIN TTL (ms). 0 uses server "
+        "default.");
 
     m.def(
         "acquire",
-        [](uintptr_t client, std::string key, uint64_t timeout, bool pin_on_acquire) {
+        [](uintptr_t client, std::string key, bool pin_on_acquire, uint64_t pin_ttl_ms) {
             priskv_memory_region region {0};
-            int ret = priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(),
-                                                 timeout, pin_on_acquire, &region);
+            /* Pass timeout=0 and explicit pin_ttl_ms */
+            int ret =
+                priskvClusterAcquireRegion((priskvClusterClient *)client, key.c_str(),
+                                           0 /* timeout */, pin_on_acquire, pin_ttl_ms, &region);
             return py::make_tuple(ret, region);
         },
-        py::arg("client"), py::arg("key"), py::arg("timeout"), py::arg("pin_on_acquire") = false,
-        "A function to acquire memory region for read.");
+        py::arg("client"), py::arg("key"), py::arg("pin_on_acquire") = false, 
+				py::arg("pin_ttl_ms") = 0,
+        "A function to acquire memory region for read; when PIN is requested, pin_ttl_ms sets TTL "
+        "in ms (0 uses server default).");
 
     m.def(
         "release",

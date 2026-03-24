@@ -156,23 +156,23 @@ int priskv_flush_async(priskv_client *client, const char *regex, uint64_t reques
 int priskv_alloc_async(priskv_client *client, const char *key, uint32_t alloc_length,
                        uint64_t timeout, uint64_t request_id, priskv_generic_cb cb);
 
-/* Seal memory region alloced for write (by token pointer, reuse key field) */
+/* Seal memory region alloced for write (by token pointer, reuse key field)
+ * When pin_on_seal is true, pass TTL via pin_ttl_ms (0 uses server default).
+ */
 int priskv_seal_async(priskv_client *client, const uint64_t *token, bool pin_on_seal,
-                      uint64_t request_id, priskv_generic_cb cb);
+                      uint64_t pin_ttl_ms, uint64_t request_id, priskv_generic_cb cb);
 
-/* Acquire memory region for zero copy read */
-int priskv_acquire_async(priskv_client *client, const char *key, uint64_t timeout,
-                         bool pin_on_acquire, uint64_t request_id, priskv_generic_cb cb);
+/* Acquire memory region for zero copy read (pin_ttl_ms is PIN TTL in ms; 0 uses server default) */
+int priskv_acquire_async(priskv_client *client, const char *key, bool pin_on_acquire,
+                         uint64_t pin_ttl_ms, uint64_t request_id, priskv_generic_cb cb);
 
 /* Release memory region (by token pointer, reuse key field) */
 int priskv_release_async(priskv_client *client, const uint64_t *token, bool unpin_on_release,
                          uint64_t request_id, priskv_generic_cb cb);
 
-
 /* Drop memory region (by token pointer, reuse key field) */
 int priskv_drop_async(priskv_client *client, const uint64_t *token, uint64_t request_id,
                       priskv_generic_cb cb);
-
 
 /* for *KEYS* command */
 typedef struct priskv_key {
@@ -221,10 +221,12 @@ uint64_t priskv_capacity(priskv_client *client);
 
 int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, uint64_t timeout,
                  priskv_memory_region *region);
-int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal);
+int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal,
+                uint64_t pin_ttl_ms);
 
-int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
-                   bool pin_on_acquire, priskv_memory_region *region);
+int priskv_acquire(priskv_client *client, const char *key, bool pin_on_acquire, uint64_t pin_ttl_ms,
+                   priskv_memory_region *region);
+
 int priskv_release(priskv_client *client, const uint64_t *token, bool unpin_on_release);
 
 int priskv_drop(priskv_client *client, const uint64_t *token);

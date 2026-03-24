@@ -222,7 +222,7 @@ static void set_handler_base(client_context *ctx, char *args, bool alloc)
         printf("ALLOC_SET status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
                priskv_status_str(status), (void *)region.addr, region.length, region.token);
         memcpy((void *)region.addr, value, (size_t)region.length);
-        status = priskv_seal(ctx->client, &region.token, pin_on_seal);
+        status = priskv_seal(ctx->client, &region.token, pin_on_seal, 0 /* pin_ttl_ms */);
         if (status != PRISKV_STATUS_OK) {
             printf("Failed to SEAL, status(%d): %s\n", status, priskv_status_str(status));
             return;
@@ -275,7 +275,7 @@ static void get_handler_base(client_context *ctx, char *args, bool acquire)
         priskv_memory_region region = {0};
         printf("ACQUIRE key=%s\n", key);
         /* Do not pin on acquire by default from CLI */
-        status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, false, &region);
+        status = priskv_acquire(ctx->client, key, false, 0 /* pin_ttl_ms */, &region);
         if (status != PRISKV_STATUS_OK) {
             printf("Failed to GET, status(%d): %s\n", status, priskv_status_str(status));
             return;
@@ -392,6 +392,7 @@ static void seal_token_handler(client_context *ctx, char *args)
     uint64_t token = 0;
     priskv_status status;
     bool pin_on_seal = false;
+    uint64_t pin_ttl_ms = 0; /* default: server-side TTL */
 
     tokstr = strtok_r(args, " ", &args);
     if (!tokstr) {
@@ -414,9 +415,14 @@ static void seal_token_handler(client_context *ctx, char *args)
         if (!strcmp(flag, "PIN")) {
             pin_on_seal = true;
         } else if (!strcmp(flag, "TTL")) {
-            /* TODO(wangyi): TTL passthrough is not implemented; parse and discard for now */
             char *ttl = strtok_r(args, " ", &args);
             if (!ttl || !strlen(ttl)) {
+                printf("%s\n", invalid_args_msg);
+                return;
+            }
+            errno = 0;
+            pin_ttl_ms = strtoull(ttl, &str_end, 10);
+            if (errno > 0 || str_end == ttl || *str_end != '\0') {
                 printf("%s\n", invalid_args_msg);
                 return;
             }
@@ -426,21 +432,19 @@ static void seal_token_handler(client_context *ctx, char *args)
         }
     }
 
-    printf("SEAL token=%" PRIu64 " [PIN=%d]\n", token, pin_on_seal);
-    /* TODO(wangyi): Support per-command TTL for pin-on-seal (e.g., 'PIN TTL N')
-     * - Parse TTL value and pass through protocol once pin_ttl_ms is supported.
-     * - Default to server-side TTL when not provided.
-     */
-    status = priskv_seal(ctx->client, &token, pin_on_seal);
+    printf("SEAL token=%" PRIu64 " [PIN=%d, TTL(ms)=%" PRIu64 "]\n", token, pin_on_seal,
+           pin_ttl_ms);
+    status = priskv_seal(ctx->client, &token, pin_on_seal, pin_ttl_ms);
     printf("SEAL status(%d): %s\n", status, priskv_status_str(status));
 }
 
 static void acquire_only_handler(client_context *ctx, char *args)
 {
-    char *key;
+    char *key, *str_end;
     priskv_status status;
     priskv_memory_region region = {0};
     bool pin_on_acquire = false;
+    uint64_t pin_ttl_ms = 0; /* default: server-side TTL */
 
     key = strtok_r(args, " ", &args);
     if (!key) {
@@ -454,9 +458,14 @@ static void acquire_only_handler(client_context *ctx, char *args)
         if (!strcmp(flag, "PIN")) {
             pin_on_acquire = true;
         } else if (!strcmp(flag, "TTL")) {
-            /* TODO(wangyi): TTL passthrough is not implemented; parse and discard for now */
             char *ttl = strtok_r(args, " ", &args);
             if (!ttl || !strlen(ttl)) {
+                printf("%s\n", invalid_args_msg);
+                return;
+            }
+            errno = 0;
+            pin_ttl_ms = strtoull(ttl, &str_end, 10);
+            if (errno > 0 || str_end == ttl || *str_end != '\0') {
                 printf("%s\n", invalid_args_msg);
                 return;
             }
@@ -467,11 +476,8 @@ static void acquire_only_handler(client_context *ctx, char *args)
     }
 
     /* Align output field name with CLI flag semantics */
-    printf("ACQUIRE key=%s [PIN=%d]\n", key, pin_on_acquire);
-    /* TODO(wangyi): Support per-command TTL for pin-on-acquire (e.g., 'PIN TTL N')
-     * - Parse TTL value and pass through protocol once pin_ttl_ms is supported.
-     */
-    status = priskv_acquire(ctx->client, key, PRISKV_KEY_MAX_TIMEOUT, pin_on_acquire, &region);
+    printf("ACQUIRE key=%s [PIN=%d, TTL(ms)=%" PRIu64 "]\n", key, pin_on_acquire, pin_ttl_ms);
+    status = priskv_acquire(ctx->client, key, pin_on_acquire, pin_ttl_ms, &region);
     printf("ACQUIRE status(%d): %s, addr %p, length %u, token 0x%lx\n", status,
            priskv_status_str(status), (void *)region.addr, region.length, region.token);
     if (status == PRISKV_STATUS_OK) {
@@ -545,7 +551,7 @@ static void drop_token_handler(client_context *ctx, char *args)
             return;
         }
     }
-    printf("DROP token=% \n" PRIu64, token);
+    printf("DROP token=%" PRIu64 "\n", token);
     status = priskv_drop(ctx->client, &token);
     printf("DROP status(%d): %s\n", status, priskv_status_str(status));
 }

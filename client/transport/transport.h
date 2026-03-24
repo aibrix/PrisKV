@@ -102,6 +102,7 @@ typedef struct priskv_transport_req {
     uint16_t keylen;
     uint32_t alloc_length;
     uint64_t timeout;
+    uint64_t pin_ttl_ms; /* Per-request PIN TTL in ms; used only when PIN flags are set */
     priskv_req_command cmd;
     uint32_t req_flags; /* Serialize request behavior flags into priskv_request::flags */
     void (*cb)(struct priskv_transport_req *req);

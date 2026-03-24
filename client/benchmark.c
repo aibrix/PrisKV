@@ -963,8 +963,8 @@ static void zc_alloc_cb(uint64_t rid, priskv_status status, void *result)
     zctx->pctx->job->mm->memcpy((void *)region->addr, zctx->value, copy_len);
     zctx->token = region->token;
     zctx->pctx->job->last_stage = "SEAL";
-    priskv_seal_async(zctx->pctx->client, &zctx->token, false /* pin_on_seal */, (uint64_t)zctx,
-                      zc_seal_cb);
+    priskv_seal_async(zctx->pctx->client, &zctx->token, false /* pin_on_seal */, 0 /* pin_ttl_ms */,
+                      (uint64_t)zctx, zc_seal_cb);
 }
 
 /* ZeroCopy DROP callback is no longer used (published keys use DELETE semantics) */

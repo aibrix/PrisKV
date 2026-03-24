@@ -45,8 +45,9 @@ static void priskv_common_sync_cb(uint64_t request_id, priskv_status status, voi
     priskv_transport_req_sync *req_sync = (priskv_transport_req_sync *)request_id;
     uint32_t valuelen = result ? *(uint32_t *)result : 0;
 
-    priskv_log_debug("priskv_common_sync_cb: callback request_id 0x%lx, status: %s[0x%x], length %d\n", request_id,
-                   priskv_resp_status_str(status), status, valuelen);
+    priskv_log_debug(
+        "priskv_common_sync_cb: callback request_id 0x%lx, status: %s[0x%x], length %d\n",
+        request_id, priskv_resp_status_str(status), status, valuelen);
     req_sync->status = status;
     req_sync->valuelen = valuelen;
     req_sync->done = true;
@@ -61,7 +62,8 @@ static inline int priskv_sync_wait(priskv_client *client, bool *done)
     return 0;
 }
 
-int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint32_t *valuelen)
+int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+               uint32_t *valuelen)
 {
     priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
@@ -72,7 +74,8 @@ int priskv_get(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t
     return req_sync.status;
 }
 
-int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl, uint64_t timeout)
+int priskv_set(priskv_client *client, const char *key, priskv_sgl *sgl, uint16_t nsgl,
+               uint64_t timeout)
 {
     priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
 
@@ -177,21 +180,22 @@ int priskv_alloc(priskv_client *client, const char *key, uint32_t alloc_length, 
     return req_sync.status;
 }
 
-int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal)
+int priskv_seal(priskv_client *client, const uint64_t *token, bool pin_on_seal, uint64_t pin_ttl_ms)
 {
     priskv_transport_req_sync req_sync = {.status = 0xffff, .done = false};
-    priskv_seal_async(client, token, pin_on_seal, (uint64_t)&req_sync,
+    priskv_seal_async(client, token, pin_on_seal, pin_ttl_ms, (uint64_t)&req_sync,
                       priskv_common_sync_cb);
 
     priskv_sync_wait(client, &req_sync.done);
     return req_sync.status;
 }
 
-int priskv_acquire(priskv_client *client, const char *key, uint64_t timeout,
-                   bool pin_on_acquire, priskv_memory_region *region)
+int priskv_acquire(priskv_client *client, const char *key, bool pin_on_acquire, uint64_t pin_ttl_ms,
+                   priskv_memory_region *region)
 {
     priskv_transport_zero_copy_req_sync req_sync = {.status = 0xffff, .done = false};
-    priskv_acquire_async(client, key, timeout, pin_on_acquire, (uint64_t)&req_sync,
+    /* pin_ttl_ms is per-request PIN TTL in ms; 0 uses server default */
+    priskv_acquire_async(client, key, pin_on_acquire, pin_ttl_ms, (uint64_t)&req_sync,
                          priskv_zero_copy_req_sync_cb);
 
     priskv_sync_wait(client, &req_sync.done);
@@ -232,8 +236,8 @@ static void priskv_keys_sync_cb(uint64_t request_id, priskv_status status, void 
 {
     priskv_transport_keys_sync *keys_req_sync = (priskv_transport_keys_sync *)request_id;
 
-    priskv_log_debug("priskv_keys_sync_cb: callback request_id 0x%lx, status: %s[0x%x]\n", request_id,
-                   priskv_resp_status_str(status), status);
+    priskv_log_debug("priskv_keys_sync_cb: callback request_id 0x%lx, status: %s[0x%x]\n",
+                     request_id, priskv_resp_status_str(status), status);
     keys_req_sync->status = status;
     keys_req_sync->done = true;
 

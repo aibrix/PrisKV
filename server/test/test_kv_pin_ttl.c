@@ -99,7 +99,8 @@ static int test_ttl_suite(void)
     usleep(1600 * 1000);
     ret = priskv_key_unpin_latest(kv, keynode);
     if (ret != PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
-        printf("TEST KV PIN TTL: unpin after TTL expiry should be NOT_CLOSED [FAILED], ret=%d\n", ret);
+        printf("TEST KV PIN TTL: unpin after TTL expiry should be NOT_CLOSED [FAILED], ret=%d\n",
+               ret);
         goto fail;
     }
 
@@ -237,7 +238,8 @@ static int test_pinned_eviction_suite(void)
 {
     /* Tiny KV to force pressure */
     uint8_t *key_base = NULL, *value_base = NULL, *val_ptr = NULL;
-    void *kv = create_kv(8 /* max_keys */, 32 /* max_key_len */, 1024 /* vblk_size */, 8 /* vblks */, &key_base, &value_base);
+    void *kv = create_kv(8 /* max_keys */, 32 /* max_key_len */, 1024 /* vblk_size */,
+                         8 /* vblks */, &key_base, &value_base);
     if (!kv) {
         printf("TEST KV PINNED EVICTION: create kv [FAILED]\n");
         return 1;
@@ -248,7 +250,8 @@ static int test_pinned_eviction_suite(void)
     const uint8_t *kpin = (const uint8_t *)"kpin";
     const uint8_t *ktemp = (const uint8_t *)"ktemp";
     const uint8_t *kbig = (const uint8_t *)"kbig";
-    uint8_t *val_check = NULL; uint32_t vlen_check = 0;
+    uint8_t *val_check = NULL;
+    uint32_t vlen_check = 0;
 
     /* Insert pinned key with a small value, then pin it */
     ret = priskv_set_key(kv, (uint8_t *)kpin, 4, &val_ptr, 512, PRISKV_KEY_MAX_TIMEOUT, &kn_pinned);
@@ -272,12 +275,14 @@ static int test_pinned_eviction_suite(void)
     priskv_set_key_end(kn_tmp);
 
     /* Now try to insert a big value that forces eviction */
-    (void)priskv_set_key(kv, (uint8_t *)kbig, 4, &val_ptr, 1024 * 6, PRISKV_KEY_MAX_TIMEOUT, &kn_tmp);
+    (void)priskv_set_key(kv, (uint8_t *)kbig, 4, &val_ptr, 1024 * 6, PRISKV_KEY_MAX_TIMEOUT,
+                         &kn_tmp);
 
     /* Verify pinned key still exists */
     ret = priskv_get_key(kv, (uint8_t *)kpin, 4, &val_check, &vlen_check, &kn_check);
     if (ret != PRISKV_RESP_STATUS_OK) {
-        printf("TEST KV PINNED EVICTION: pinned key missing after pressure [FAILED], ret=%d\n", ret);
+        printf("TEST KV PINNED EVICTION: pinned key missing after pressure [FAILED], ret=%d\n",
+               ret);
         goto fail;
     }
     priskv_get_key_end(kn_check);

@@ -76,15 +76,18 @@ class PriskvClient:
     def seal(self,
             key: str,
             region: client.MemoryRegion,
-            pin_on_seal: bool = False) -> int:
-        return client.seal(self.conn, key, region, pin_on_seal)
+            pin_on_seal: bool = False,
+            pin_ttl_ms: int = 0) -> int:
+        """Seal the previously allocated region. When pin_on_seal is True, pin_ttl_ms specifies the PIN TTL in milliseconds; 0 means server default."""
+        return client.seal(self.conn, key, region, pin_on_seal, pin_ttl_ms)
 
     def acquire(self,
             key: str,
-            timeout: int = client.PRISKV_KEY_MAX_TIMEOUT,
+            pin_ttl_ms: int = 0,
             pin_on_acquire: bool = False,
             ) -> Tuple[int, client.MemoryRegion]:
-        status, region = client.acquire(self.conn, key, timeout, pin_on_acquire)
+        """Acquire zero-copy read region. When pin_on_acquire is True, pin_ttl_ms specifies the PIN TTL in milliseconds; 0 means server default."""
+        status, region = client.acquire(self.conn, key, pin_on_acquire, pin_ttl_ms)
         return status, region
     
     def release(self,
