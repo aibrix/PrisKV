@@ -26,6 +26,7 @@ import numpy as np
 import priskv
 import argparse
 import ctypes
+import time
 
 """
 Zero-Copy Transport Semantics Assertions (for tests):
@@ -536,6 +537,38 @@ class PriskvClientTesting:
         assert status in (priskv.PRISKV_STATUS.PRISKV_STATUS_NO_SUCH_TOKEN,
                           priskv.PRISKV_STATUS.PRISKV_STATUS_NO_SUCH_KEY)
 
+    def test_pin_ttl_expire_on_acquire(self):
+        TEST_KEY = "py_pin_ttl_acquire"
+        SIZE = 256
+        # TTL is in milliseconds; sleep slightly longer than 1.5s to avoid clock granularity issues
+        PIN_TTL_MS = 1500
+        SLEEP_SEC = 1.6
+
+        status, region = self.client.alloc(TEST_KEY, SIZE, 3000)
+        assert status == 0
+        status = self.client.seal(TEST_KEY, region)
+        assert status == 0
+
+        # ACQUIRE with PIN（with TTL）
+        status, acq = self.client.acquire(TEST_KEY, PIN_TTL_MS, True)
+        assert status == 0, f"acquire(pin ttl) failed: {status}"
+
+        # wait TTL expired
+        time.sleep(SLEEP_SEC)
+
+        status = self.client.release(TEST_KEY, acq, unpin_on_release=True)
+        assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_UNPIN_NOT_CLOSED, \
+            f"expected UNPIN_NOT_CLOSED after TTL expiry, got {status}"
+
+        status2, acq2 = self.client.acquire(TEST_KEY, 0, False)
+        assert status2 == priskv.PRISKV_STATUS.PRISKV_STATUS_OK
+        status2 = self.client.release(TEST_KEY, acq2, unpin_on_release=True)
+        assert status2 == priskv.PRISKV_STATUS.PRISKV_STATUS_UNPIN_NOT_CLOSED, \
+            f"follow-up unpin without pin should be UNPIN_NOT_CLOSED, got {status2}"
+
+        # Cleanup
+        assert self.client.delete(TEST_KEY) == 0
+
     # TODO(wangyi): Add PinTTL expiry tests
     # - Simulate pin-on-acquire/pin-on-seal with a short TTL and verify automatic cleanup
     #   decrements pin_count on the latest version after TTL.
@@ -563,6 +596,7 @@ def run_testing(testing):
     testing.test_pin_on_acquire_and_unpin_on_release()
     testing.test_unpin_not_closed_on_release()
     testing.test_unpin_no_such_key()
+    testing.test_pin_ttl_expire_on_acquire()
 
     testing.cleanup()
 

@@ -498,12 +498,34 @@ static priskv_resp_status priskv_pin_count_delta_latest(priskv_kv *kv, uint8_t *
     } else if (delta < 0) {
         /* UNPIN (-1): use pin_count helpers to simplify logic */
         pthread_spin_lock(&latest->lock);
-        if (latest->pin_count > 0) {
+        /* If pin TTL has expired, treat as NOT_CLOSED regardless of pin_count.
+         * This makes UNPIN idempotent after TTL expiration and avoids pretending
+         * a valid close when the lifetime already ended asynchronously.
+         */
+        bool ttl_expired = false;
+        if (latest->pin_ttl.tv_sec >= 0) {
+            int64_t elapsed_ms = priskv_time_elapsed_ms(latest->pin_ttl, now);
+            if (elapsed_ms > 0) {
+                ttl_expired = true;
+            }
+        }
+
+        if (ttl_expired) {
+            /* Converge state: clear pin_count and invalidate pin_ttl */
+            latest->pin_count = 0;
+            latest->pin_ttl.tv_sec = -1;
+            latest->pin_ttl.tv_usec = -1;
+            resp = PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED;
+        } else if (latest->pin_count > 0) {
             __pin_count_dec_if_positive(latest);
         } else {
             resp = PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED;
         }
         pthread_spin_unlock(&latest->lock);
+
+        if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED && ttl_expired) {
+            priskv_log_info("KV: UNPIN_NOT_CLOSED due to pin TTL expiry");
+        }
     } else {
         /* delta == 0: no-op */
     }
