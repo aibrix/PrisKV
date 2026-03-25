@@ -1205,25 +1205,24 @@ void priskv_clear_expired_kv(int fd, void *opaque, uint32_t events)
         pthread_spin_lock(&hash_head->lock);
         /* Single pass per bucket: collect expired keys and clean up expired pin TTLs */
         list_for_each_safe (&hash_head->head, keynode, tmp, entry) {
+            /* TTL cleanup for non-expired keys: node level TTL expired set pin_count to 0 */
+            pthread_spin_lock(&keynode->lock);
+            if (keynode->pin_count > 0) {
+                int64_t elapsed_ms = priskv_time_elapsed_ms(keynode->pin_ttl, now);
+                if (elapsed_ms > 0) {
+                    /* TTL expired: clear pin_count and reset pin_ttl to invalid */
+                    keynode->pin_count = 0;
+                    keynode->pin_ttl.tv_sec = -1;
+                    keynode->pin_ttl.tv_usec = -1;
+                }
+            }
+            pthread_spin_unlock(&keynode->lock);
             if (priskv_key_timeout(keynode, now)) {
                 /* Collect expired KV for cleanup outside of the bucket lock */
                 list_del(&keynode->entry);
                 list_add_tail(&expired_kv, &keynode->entry);
                 kv->expire_routine_statics.expire_kv_count++;
                 kv->expire_routine_statics.expire_kv_bytes += keynode->valuelen;
-            } else {
-                /* TTL cleanup for non-expired keys: node level TTL expired set pin_count to 0 */
-                pthread_spin_lock(&keynode->lock);
-                if (keynode->pin_count > 0) {
-                    int64_t elapsed_ms = priskv_time_elapsed_ms(keynode->pin_ttl, now);
-                    if (elapsed_ms > 0) {
-                        /* TTL expired: clear pin_count and reset pin_ttl to invalid */
-                        keynode->pin_count = 0;
-                        keynode->pin_ttl.tv_sec = -1;
-                        keynode->pin_ttl.tv_usec = -1;
-                    }
-                }
-                pthread_spin_unlock(&keynode->lock);
             }
         }
 

@@ -470,15 +470,18 @@ typedef struct seal_req_arg {
 static void *seal_with_pin_thread(void *arg)
 {
     seal_req_arg *a = (seal_req_arg *)arg;
-    uint8_t req_buf[128];
+    const size_t req_size = sizeof(priskv_request) + sizeof(uint64_t);
+    uint8_t req_buf[req_size];
     priskv_request *req = (priskv_request *)req_buf;
-    memset(req, 0, sizeof(req_buf));
+    memset(req, 0, req_size);
     req->command = htobe16(PRISKV_COMMAND_SEAL);
     req->flags = htobe32(PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    req->nsgl = htobe16(0);
+    req->key_length = htobe16(sizeof(uint64_t));
     uint64_t be_token = htobe64(a->token_host);
     memcpy((uint8_t *)req + sizeof(priskv_request), &be_token, sizeof(uint64_t));
     pthread_barrier_wait(a->barrier);
-    priskv_transport_handle_recv(a->conn, req, sizeof(priskv_request) + sizeof(uint64_t));
+    priskv_transport_handle_recv(a->conn, req, (uint16_t)req_size);
     return NULL;
 }
 
@@ -557,15 +560,18 @@ static void test_kv_transport_concurrent_seal_pin(void *kv)
 static void *seal_with_pin_thread_stress(void *arg)
 {
     seal_req_arg *a = (seal_req_arg *)arg;
-    uint8_t req_buf[128];
+    const size_t req_size = sizeof(priskv_request) + sizeof(uint64_t);
+    uint8_t req_buf[req_size];
     priskv_request *req = (priskv_request *)req_buf;
-    memset(req, 0, sizeof(req_buf));
+    memset(req, 0, req_size);
     req->command = htobe16(PRISKV_COMMAND_SEAL);
     req->flags = htobe32(PRISKV_REQ_FLAG_PIN_ON_SEAL);
+    req->nsgl = htobe16(0);
+    req->key_length = htobe16(sizeof(uint64_t));
     uint64_t be_token = htobe64(a->token_host);
     memcpy((uint8_t *)req + sizeof(priskv_request), &be_token, sizeof(uint64_t));
     pthread_barrier_wait(a->barrier);
-    priskv_transport_handle_recv(a->conn, req, sizeof(priskv_request) + sizeof(uint64_t));
+    priskv_transport_handle_recv(a->conn, req, (uint16_t)req_size);
     return NULL;
 }
 
