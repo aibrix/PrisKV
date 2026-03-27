@@ -806,6 +806,8 @@ out_nomem:
  * - If a same-named published key exists, delete the old node (pop+free) first, then insert the
  *   new node into the hash table.
  * - Join LRU and clear inprocess so it becomes readable (ACQUIRE/GET).
+ * - Hold a temporary reference across the publish window to prevent premature reclamation while
+ *   the node is being made visible and integrated into LRU; balanced after old-node cleanup.
  */
 static int __priskv_publish_node_with_pin(priskv_kv *kv, priskv_key *keynode, bool pin_on_publish,
                                           uint64_t ttl_ms)
@@ -860,7 +862,20 @@ static int __priskv_publish_node_with_pin(priskv_kv *kv, priskv_key *keynode, bo
         /* Centralized increment + TTL extension */
         __pin_update_locked(keynode, ttl_ms);
         pthread_spin_unlock(&keynode->lock);
+        /* Count pin-on-publish as a PIN operation for observability parity
+         * with ACQUIRE+PIN. We intentionally do this here (not by calling
+         * priskv_key_pin_latest) to avoid lock-order issues during publish. */
+        __sync_fetch_and_add(&kv->pin_stats.pin_ops, 1);
     }
+
+    /*
+     * Take a temporary reference before making the node visible.
+     * Rationale: concurrent GET/UNPIN may briefly observe the node between
+     * visibility and LRU integration. This extra ref ensures the node cannot
+     * reach refcnt==0 and be reclaimed in that window. It is released after
+     * LRU join and old-node cleanup.
+     */
+    priskv_keynode_ref(keynode);
 
     /* Make the new node visible in the same critical section. */
     list_add_tail(&hash_head->head, &keynode->entry);
@@ -875,6 +890,9 @@ static int __priskv_publish_node_with_pin(priskv_kv *kv, priskv_key *keynode, bo
         priskv_lru_del_key(old_keynode);
         __priskv_del_key(kv, old_keynode);
     }
+
+    /* Balance the temporary publish-time reference. */
+    priskv_keynode_deref(keynode);
 
     return PRISKV_RESP_STATUS_OK;
 }
@@ -928,12 +946,21 @@ int priskv_key_unpin_latest(void *_kv, void *_keynode)
         return PRISKV_RESP_STATUS_SERVER_ERROR;
     }
 
+    if (node->kv != kv || node->keylen == 0) {
+        priskv_log_warn("KV: UNPIN_LATEST stale-handle? node=%p kv_match=%d keylen=%u\n",
+                        (void *)node, node->kv == kv, node->keylen);
+    }
+
     priskv_resp_status resp = priskv_pin_count_delta_latest(kv, node->key, node->keylen, -1, 0);
 
     /* Stats: count every UNPIN attempt; record not-closed cases. */
-    kv->pin_stats.unpin_ops++;
-    if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
-        kv->pin_stats.unpin_not_closed++;
+        __sync_fetch_and_add(&kv->pin_stats.unpin_ops, 1);
+        if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
+            __sync_fetch_and_add(&kv->pin_stats.unpin_not_closed, 1);
+        }
+    if (resp != PRISKV_RESP_STATUS_OK) {
+        priskv_log_warn("KV: UNPIN_LATEST status=%d for node=%p (len=%u)\n", resp, (void *)node,
+                        node->keylen);
     }
     return resp;
 }
@@ -950,10 +977,10 @@ int priskv_key_pin_latest(void *_kv, void *_keynode, uint64_t ttl_ms)
     priskv_resp_status resp =
         priskv_pin_count_delta_latest(kv, node->key, node->keylen, +1, ttl_ms);
     if (resp == PRISKV_RESP_STATUS_OK) {
-        kv->pin_stats.pin_ops++;
+        __sync_fetch_and_add(&kv->pin_stats.pin_ops, 1);
     } else {
         /* Count failed PIN attempts (e.g., NO_SUCH_KEY) */
-        kv->pin_stats.pin_failed_ops++;
+        __sync_fetch_and_add(&kv->pin_stats.pin_failed_ops, 1);
     }
     return resp;
 }
