@@ -205,25 +205,33 @@ static void *test_kv_verify(void *arg)
         int ret = priskv_get_key(kv, tkv->key, tkv->keylen, &value_in_kv,
                                  &tkv->valuelen_in_kv, &keynode);
         if (ret != PRISKV_RESP_STATUS_OK || !keynode) {
-            printf("TEST KV: verify KV [%d] status [%s] [FAILED]\n", i,
-                   priskv_resp_status_str(ret));
+            printf("TEST KV: verify status FAILED at line %d [thd=%u idx=%u] ret=%s keylen=%u keynode=%p\n",
+                   __LINE__, thdid, i, priskv_resp_status_str(ret), tkv->keylen, keynode);
             assert(0);
         }
 
         if (value_in_kv != tkv->value_in_kv) {
-            printf("TEST KV: verify KV [%d] value pointer [%p] against [%p] [FAILED]\n", i,
-                   value_in_kv, tkv->value_in_kv);
+            printf("TEST KV: verify pointer FAILED at line %d [thd=%u idx=%u] value_in_kv=%p expected=%p valuelen_in_kv=%u saved_valuelen=%u\n",
+                   __LINE__, thdid, i, value_in_kv, tkv->value_in_kv,
+                   tkv->valuelen_in_kv, tkv->valuelen);
             assert(0);
         }
 
         if (tkv->valuelen != tkv->valuelen_in_kv) {
-            printf("TEST KV: verify KV [%d] value length [%d] against [%d] [FAILED]\n", i,
-                   tkv->valuelen, tkv->valuelen_in_kv);
+            printf("TEST KV: verify length FAILED at line %d [thd=%u idx=%u] valuelen=%u valuelen_in_kv=%u\n",
+                   __LINE__, thdid, i, tkv->valuelen, tkv->valuelen_in_kv);
             assert(0);
         }
 
         if (memcmp(value_in_kv, tkv->value, tkv->valuelen)) {
-            printf("TEST KV: verify KV [%d] value compare [FAILED]\n", i);
+            uint32_t dump_len = tkv->valuelen < 16 ? tkv->valuelen : 16;
+            printf("TEST KV: verify memcmp FAILED at line %d [thd=%u idx=%u] len=%u dump_len=%u\n",
+                   __LINE__, thdid, i, tkv->valuelen, dump_len);
+            printf("TEST KV:   first bytes (expected/actual):");
+            for (uint32_t b = 0; b < dump_len; b++) {
+                printf(" %02x/%02x", tkv->value[b], value_in_kv[b]);
+            }
+            printf("\n");
             assert(0);
         }
 
