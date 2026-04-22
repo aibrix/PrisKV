@@ -129,10 +129,10 @@ static void priskv_config_init_impl(void)
                             "Shared memory will be enabled automatically.");
         }
 
-        ucs_config_parser_print_opts(
-            stdout, "PrisKV Environment Variables", &g_config, priskv_config_table, NULL,
-            PRISKV_ENV_PREFIX,
-            UCS_CONFIG_PRINT_CONFIG | UCS_CONFIG_PRINT_HEADER | UCS_CONFIG_PRINT_DOC, NULL);
+        ucs_config_parser_print_opts(stdout, "PrisKV Environment Variables", &g_config,
+                                     priskv_config_table, NULL, PRISKV_ENV_PREFIX,
+                                     UCS_CONFIG_PRINT_CONFIG | UCS_CONFIG_PRINT_HEADER |
+                                         UCS_CONFIG_PRINT_DOC);
 
         // logging
         priskv_set_log_level(g_config.logging.log_level);

@@ -42,8 +42,7 @@ extern "C"
                                                                       .prefix = PREFIX,            \
                                                                       .table = TABLE,              \
                                                                       .size = sizeof(TYPE),        \
-                                                                      .list = {NULL, NULL},        \
-                                                                      .flags = 0};
+                                                                      .list = {NULL, NULL}};
 
 #define PRISKV_CONFIG_GET_TABLE(TABLE) &g_##TABLE##_config_entry
 #define PRISKV_ENV_PREFIX "PRISKV_"
