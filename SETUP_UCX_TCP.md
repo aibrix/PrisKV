@@ -6,8 +6,6 @@ The goal is:
 2. Connect using `PriskvClient` to a running `priskv-server`
 3. Optionally validate end-to-end `set/get`
 
-> Note: PrisKV may require UCX-version-specific compatibility patches. If your system uses UCX 1.12, verify the items in **Section 7** exist in your source tree.
-
 ---
 
 ## 0. Prerequisites (Debian/Ubuntu)
@@ -183,35 +181,7 @@ PY
 
 ---
 
-## 7. UCX 1.12 compatibility patches to verify
-
-If your system UCX is 1.12, PrisKV may need compatibility adjustments to avoid build errors or protocol/ABI mismatches.
-Verify the following items exist in your checkout.
-
-### 7.1 `PrisKV/lib/config.c`: UCX config parser API compatibility
-
-- Add `<string.h>` (avoid implicit `strcmp`)
-- Fix `ucs_config_parser_print_opts` call signature (argument count)
-- Fix wrapper signatures/arguments for `ucs_config_parser_fill_opts` and `ucs_config_parser_set_value`
-
-### 7.2 `PrisKV/include/priskv-config.h`: config table struct compatibility
-
-- In `PRISKV_CONFIG_DECLARE_TABLE`, remove `.flags = 0` if the field does not exist in UCX 1.12.
-
-### 7.3 `PrisKV/lib/ucx.c`: UCX 1.12 API compatibility
-
-- Replace packed RKEY release logic with UCX 1.12 behavior (`ucp_rkey_buffer_release()`)
-- Adjust `ucp_worker_get_address()` length argument to `size_t*` and convert back to PrisKV types as needed
-
-### 7.4 `PrisKV/lib/ucx.c` (client/server UCX wrapper): tag-recv completion info
-
-- In `priskv_ucx_post_tag_recv()`, ensure `ucp_request_param_t.op_attr_mask` includes `UCP_OP_ATTR_FIELD_RECV_INFO`
-
-If you still see messages like `UCX: recv <...>, expected 48` or endpoint timeouts, continue deeper protocol-level debugging (request/response completion info and response struct decoding).
-
----
-
-## 8. Readiness checklist for developers
+## 7. Readiness checklist for developers
 
 - Successful `import priskv` indicates the Python extension is built/installed correctly.
 - Server logs show `UCX ... ready` indicates UCX transport is initialized.
