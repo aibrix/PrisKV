@@ -120,7 +120,7 @@ export PRISKV_CLIENT_DIRECT_MODE=y
 Optional debugging:
 
 ```bash
-export PRISKV_LOG_LEVEL=notice
+export PRISKV_LOG_LEVEL=debug
 ```
 
 ---
