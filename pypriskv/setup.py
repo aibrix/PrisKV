@@ -53,7 +53,7 @@ ext_modules = [
 ]
 
 setup(
-    name='priskv',
+    name='pypriskv',
     version='0.0.2',
     description=
     '''This is priskv's client. priskv is specifically designed for modern high-performance '''
