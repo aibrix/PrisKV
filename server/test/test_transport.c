@@ -77,10 +77,12 @@ static void do_mock_req(priskv_transport_conn *conn, uint16_t cmd, void *payload
     req->command = htobe16(cmd);
     if (cmd == PRISKV_COMMAND_ALLOC) {
         req->alloc_length = htobe32(*(uint32_t *)payload);
+        req->key_length = htobe16(strlen("perm_test_key") + 1);
         memcpy(mock_request_key(req), "perm_test_key", strlen("perm_test_key") + 1);
         priskv_transport_handle_recv(conn, req,
                                      sizeof(priskv_request) + strlen("perm_test_key") + 1);
     } else {
+        req->key_length = htobe16(payload_len);
         memcpy(mock_request_key(req), payload, payload_len);
         priskv_transport_handle_recv(conn, req, sizeof(priskv_request) + payload_len);
     }
@@ -94,6 +96,7 @@ static void do_mock_req_with_flags(priskv_transport_conn *conn, uint16_t cmd, vo
     memset(req, 0, sizeof(req_buf));
     req->command = htobe16(cmd);
     req->flags = htobe32(flags);
+    req->key_length = htobe16(payload_len);
     memcpy(mock_request_key(req), payload, payload_len);
     priskv_transport_handle_recv(conn, req, sizeof(priskv_request) + payload_len);
 }
@@ -789,6 +792,7 @@ static void test_kv_transport_param_validation(void *kv)
     req->command = htobe16(PRISKV_COMMAND_GET);
     req->nsgl = htobe16(0);
     uint16_t too_long = conn.conn_cap.max_key_length + 1; /* 65 */
+    req->key_length = htobe16(too_long);
     /* Append overlong key bytes following the request */
     memset(req_buf + sizeof(priskv_request), 'A', too_long);
     last_status = -1;
@@ -803,6 +807,7 @@ static void test_kv_transport_param_validation(void *kv)
     req->nsgl = htobe16(conn.conn_cap.max_sgl + 1);
     const char *key = "param_test_key"; /* length < max_key_length */
     uint16_t keylen = (uint16_t)(strlen(key) + 1);
+    req->key_length = htobe16(keylen);
     memcpy(req_buf + sizeof(priskv_request), key, keylen);
     last_status = -1;
     priskv_transport_handle_recv(&conn, req, sizeof(priskv_request) + keylen);
