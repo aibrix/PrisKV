@@ -81,6 +81,8 @@ endif
 $(PRISKV_SERVER_TARGETS): priskv-%: %.c $(PRISKV_SERVER_OBJS) $(COMMON_LIB_OBJS) $(DEPS_STATIC_LIBS)
 	$(CC) $^ -o $@ $(CFLAGS) $(UCX_CFLAGS) $(LIBS)
 
+$(PRISKV_SERVER_OBJS) $(COMMON_LIB_OBJS): $(LIBJSONC_HEADERS)
+
 MAN_DIR =../man
 $(MAN_DIR)/priskv-server.1: $(MAN_DIR)/priskv-server.man
 	sed 's/__PRISKV_VERSION__/$(shell date +%Y%m%d)/g' $< > $@

@@ -93,7 +93,7 @@ all: $(PRISKV_TARGETS)
 
 %.d: %.c
 	@rm -f $@; \
-	$(CC) -MM $< $(INCFLAGS) >$@.tmp; \
+	$(CC) -MM -MG $< $(INCFLAGS) >$@.tmp; \
 	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.tmp > $@; \
 	rm -f $@.tmp
 
@@ -107,6 +107,8 @@ endif
 
 $(STATIC_LIB): $(DEPS_STATIC_LIBS) $(OBJS) $(COMMON_LIB_OBJS)
 	$(AR) rcs $@ $^
+
+$(OBJS) $(COMMON_LIB_OBJS): $(LIBJSONC_HEADERS)
 
 $(THIRDPARTY_SRCS):
 	git submodule update --init --recursive ../thirdparty/linenoise
