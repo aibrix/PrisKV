@@ -25,7 +25,7 @@ ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
 CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
-PRISKV_CLUSTER_TARGETS = priskv-cluster-benchmark priskv-cluster-example priskv-cluster-test_status
+PRISKV_CLUSTER_TARGETS = priskv-cluster-benchmark priskv-cluster-example
 PRISKV_CLUSTER_TARGETS_SRCS = $(patsubst priskv-cluster-%, %.c, $(PRISKV_CLUSTER_TARGETS))
 ALL_SRCS = $(wildcard *.c)
 LIB_SRCS = $(filter-out $(PRISKV_CLUSTER_TARGETS_SRCS), $(wildcard *.c))
@@ -52,7 +52,7 @@ all: $(PRISKV_CLUSTER_TARGETS)
 
 %.d: %.c
 	@rm -f $@; \
-	$(CC) -MM $< $(INCFLAGS) >$@.tmp; \
+	$(CC) -MM -MG $< $(INCFLAGS) >$@.tmp; \
 	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.tmp > $@; \
 	rm -f $@.tmp
 
@@ -66,6 +66,8 @@ endif
 
 $(STATIC_LIB_TMP): $(DEPS_STATIC_LIBS) $(LIB_OBJS) $(COMMON_LIB_OBJS)
 	$(AR) rcs $@ $^
+
+$(LIB_OBJS) $(COMMON_LIB_OBJS): $(LIBJSONC_HEADERS)
 
 $(STATIC_LIB): $(STATIC_LIB_TMP) $(PRISKV_STATIC_LIB) $(DEPS_STATIC_LIBS)
 	$(AR) -M < ./libpriskvcluster.mri
