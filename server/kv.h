@@ -165,6 +165,7 @@ int priskv_publish_node(void *_kv, void *_keynode);
 int priskv_publish_node_with_pin(void *_kv, void *_keynode, bool pin_on_publish, uint64_t ttl_ms);
 int priskv_drop_node(void *_kv, void *_keynode);
 
+/* Pin/Unpin controls for lifecycle protection */
 int priskv_key_unpin_latest(void *_kv, void *_keynode);
 /* Pin on the latest version; ttl_ms==0 uses the default TTL */
 int priskv_key_pin_latest(void *_kv, void *_keynode, uint64_t ttl_ms);
@@ -174,7 +175,6 @@ uint64_t priskv_get_pin_ops(void *_kv);
 uint64_t priskv_get_pin_failed_ops(void *_kv);
 uint64_t priskv_get_unpin_ops(void *_kv);
 uint64_t priskv_get_unpin_not_closed(void *_kv);
-
 #if defined(__cplusplus)
 }
 #endif

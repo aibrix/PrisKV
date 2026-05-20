@@ -25,7 +25,7 @@ ifneq (,$(filter $(PRISKV_USE_CUDA),yes YES y Y 1))
 CFLAGS += $(CUDA_LDFLAGS) -DPRISKV_USE_CUDA
 endif
 
-PRISKV_CLUSTER_TARGETS = priskv-cluster-benchmark priskv-cluster-example
+PRISKV_CLUSTER_TARGETS = priskv-cluster-benchmark priskv-cluster-example priskv-cluster-test_status
 PRISKV_CLUSTER_TARGETS_SRCS = $(patsubst priskv-cluster-%, %.c, $(PRISKV_CLUSTER_TARGETS))
 ALL_SRCS = $(wildcard *.c)
 LIB_SRCS = $(filter-out $(PRISKV_CLUSTER_TARGETS_SRCS), $(wildcard *.c))

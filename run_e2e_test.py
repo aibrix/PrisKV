@@ -28,7 +28,11 @@ def find_rdma_dev():
         for dev in os.listdir(ibclass):
             netdev = ibclass + dev + "/ports/1/gid_attrs/ndevs/0"
             with open(netdev) as fp:
-                addrs = netifaces.ifaddresses(fp.readline().strip("\n"))
+                iface = fp.readline().strip("\n")
+                try:
+                    addrs = netifaces.ifaddresses(iface)
+                except ValueError:
+                    continue
                 if netifaces.AF_INET in addrs:
                     ipv4_addr = addrs[netifaces.AF_INET][0]["addr"]
                     print(

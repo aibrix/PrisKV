@@ -440,9 +440,8 @@ static priskvClusterRequest *priskvClusterRequestNew(priskvClusterNode *node, pr
                                                      void *cbarg, RequestType type, const char *key,
                                                      uint64_t timeout, priskvClusterClient *client)
 {
-    /* For ACQUIRE/SEAL, interpret 'timeout' from callers as pin_ttl_ms to keep API stable */
     return priskvClusterRequestNewBase(node, sgl, nsgl, cb, NULL, cbarg, type, key, timeout,
-                                       false /*pin_key*/, 0 /*pin_ttl_ms*/, false /* unpin_key */,
+                                       false /* pin_key */, 0 /* pin_ttl_ms */, false /* unpin_key */,
                                        0, 0, client);
 }
 
@@ -452,9 +451,8 @@ priskvClusterZeroCopyRequestNew(priskvClusterNode *node, priskvClusterZeroCopyCa
                                 uint32_t alloc_length, uint64_t timeout, bool pin_key,
                                 uint64_t pin_ttl_ms, bool unpin_key, priskvClusterClient *client)
 {
-    /* Zero-copy requests never set unpin_key at construction */
     return priskvClusterRequestNewBase(node, NULL, 0, NULL, cb, cbarg, type, key, timeout, pin_key,
-                                       pin_ttl_ms, unpin_key, alloc_length, 0 /*token*/, client);
+                                       pin_ttl_ms, unpin_key, alloc_length, 0 /* token */, client);
 }
 
 static void priskvClusterRequestFree(priskvClusterRequest *req)
@@ -576,7 +574,6 @@ priskvClusterRequest *priskvClusterGetZeroCopyRequest(priskvClusterClient *clien
         return NULL;
     }
 
-    /* Use explicit pin_ttl_ms for ACQUIRE/SEAL; ALLOC ignores it */
     priskvClusterRequest *req = priskvClusterZeroCopyRequestNew(
         node, cb, cbarg, type, key, alloc_length, timeout, pin_key, pin_ttl_ms, unpin_key, client);
     return req;
@@ -610,18 +607,16 @@ int priskvClusterSubmitRequest(priskvClusterRequest *req)
                                (uint64_t)req, priskvClusterZeroCopyRequestCallback);
             break;
         case SEAL:
-            priskv_seal_async(req->node->client, &req->token, req->pin_key /* pin_on_seal */,
-                              req->pin_ttl_ms /* pin_ttl_ms */, (uint64_t)req,
-                              priskvClusterRequestCallback);
+            priskv_seal_async(req->node->client, &req->token, req->pin_key, req->pin_ttl_ms,
+                              (uint64_t)req, priskvClusterRequestCallback);
             break;
         case ACQUIRE:
-            priskv_acquire_async(req->node->client, req->key, req->pin_ttl_ms,
-                                 req->pin_key /* pin_on_acquire */, (uint64_t)req,
+            priskv_acquire_async(req->node->client, req->key, req->timeout, req->pin_key,
+                                 req->pin_ttl_ms, (uint64_t)req,
                                  priskvClusterZeroCopyRequestCallback);
             break;
         case RELEASE:
-            priskv_release_async(req->node->client, &req->token,
-                                 req->unpin_key /* unpin_on_release */, (uint64_t)req,
+            priskv_release_async(req->node->client, &req->token, req->unpin_key, (uint64_t)req,
                                  priskvClusterRequestCallback);
             break;
         case DROP:
@@ -938,11 +933,11 @@ int priskvClusterAsyncSeal(priskvClusterClient *client, const char *key, const u
                            bool pin_on_seal, uint64_t pin_ttl_ms, priskvClusterCallback cb,
                            void *cbarg)
 {
-    priskvClusterRequest *req = priskvClusterGetRequest(
-        client, key, NULL, 0, cb, cbarg, pin_ttl_ms /* use timeout as pin_ttl_ms */, SEAL);
+    priskvClusterRequest *req = priskvClusterGetRequest(client, key, NULL, 0, cb, cbarg, 0, SEAL);
     if (req) {
         req->token = token ? *token : 0;
         req->pin_key = pin_on_seal;
+        req->pin_ttl_ms = pin_ttl_ms;
     }
     if (req == NULL)
         return -1;
@@ -950,12 +945,13 @@ int priskvClusterAsyncSeal(priskvClusterClient *client, const char *key, const u
     return priskvClusterSubmitRequest(req);
 }
 
-int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, bool pin_on_acquire,
-                              uint64_t pin_ttl_ms, priskvClusterZeroCopyCallback cb, void *cbarg)
+int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, uint64_t timeout,
+                              bool pin_on_acquire, uint64_t pin_ttl_ms,
+                              priskvClusterZeroCopyCallback cb, void *cbarg)
 {
     priskvClusterRequest *req = priskvClusterGetZeroCopyRequest(
-        client, key, cb, cbarg, 0 /* alloc_length */, 0 /* timeout */, pin_on_acquire /* pin_key */,
-        pin_ttl_ms, false /* unpin_key */, ACQUIRE);
+        client, key, cb, cbarg, 0 /* alloc_length */, timeout, pin_on_acquire, pin_ttl_ms,
+        false /* unpin_key */, ACQUIRE);
     if (req == NULL)
         return -1;
 
@@ -1103,7 +1099,8 @@ priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char
     }
 
     priskv_memory_region region = {0};
-    priskv_status status = priskv_acquire(node->client, key, pin_on_acquire, pin_ttl_ms, &region);
+    priskv_status status =
+        priskv_acquire(node->client, key, timeout, pin_on_acquire, pin_ttl_ms, &region);
     if (status == PRISKV_STATUS_OK) {
         if (addr) {
             *addr = region.addr;
@@ -1117,7 +1114,7 @@ priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char
 }
 
 int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uint64_t timeout,
-                               bool pin_on_acquire, uint64_t pin_ttl_ms, 
+                               bool pin_on_acquire, uint64_t pin_ttl_ms,
                                priskv_memory_region *region)
 {
     priskvClusterNode *node = priskvClusterGetNode(client, key);
@@ -1125,8 +1122,7 @@ int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uin
         return PRISKV_CLUSTER_STATUS_NO_SUCH_KEY;
     }
 
-    /* timeout is kept for API compatibility; pin_ttl_ms controls PIN TTL (0 uses server default) */
-    return priskv_acquire(node->client, key, pin_on_acquire, pin_ttl_ms, region);
+    return priskv_acquire(node->client, key, timeout, pin_on_acquire, pin_ttl_ms, region);
 }
 
 priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key,

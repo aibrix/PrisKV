@@ -237,10 +237,9 @@ static inline void priskv_ucx_reject(priskv_transport_conn *client, priskv_cm_st
         .status = htobe16(status),
         .value = htobe64(value),
     };
-    ucs_status_t ucs_status = ucs_socket_send(client->connfd, &rej_msg_be, sizeof(rej_msg_be));
-    if (ucs_status != UCS_OK) {
-        priskv_log_error("UCX: send reject message failed, status: %s\n",
-                         ucs_status_string(ucs_status));
+    int ret = priskv_safe_send(client->connfd, &rej_msg_be, sizeof(rej_msg_be), NULL, NULL);
+    if (ret < 0) {
+        priskv_log_error("UCX: send reject message failed: %m\n");
     }
 }
 
@@ -275,11 +274,9 @@ static inline int priskv_ucx_accept(priskv_transport_conn *client)
             client->peer_addr, address_len, print_len, worker_address_hex);
     }
 
-    ucs_status_t status = ucs_socket_send(client->connfd, hs, hs_size);
-    if (status != UCS_OK) {
-        ret = -1;
-        priskv_log_error("UCX: send accept message failed, status: %s\n",
-                         ucs_status_string(status));
+    ret = priskv_safe_send(client->connfd, hs, hs_size, NULL, NULL);
+    if (ret < 0) {
+        priskv_log_error("UCX: send accept message failed: %m\n");
         goto out_free_msg;
     }
 
@@ -294,7 +291,6 @@ out_free_msg:
 static inline int priskv_ucx_handle_handshake(void *arg)
 {
     int ret;
-    ucs_status_t sock_status;
     priskv_cm_ucx_handshake peer_hs;
     priskv_cm_status status;
 
@@ -304,10 +300,9 @@ static inline int priskv_ucx_handle_handshake(void *arg)
     int connfd = client->connfd;
 
     /* #step0, recv handshake msg */
-    sock_status = ucs_socket_recv(connfd, &peer_hs, sizeof(peer_hs));
-    if (sock_status != UCS_OK) {
-        priskv_log_error("UCX: recv handshake msg failed, status: %s\n",
-                         ucs_status_string(sock_status));
+    ret = priskv_safe_recv(connfd, &peer_hs, sizeof(peer_hs), NULL, NULL);
+    if (ret < 0) {
+        priskv_log_error("UCX: recv handshake msg failed: %m\n");
         ucs_close_fd(&connfd);
         return -1;
     }
@@ -325,10 +320,9 @@ static inline int priskv_ucx_handle_handshake(void *arg)
             ucs_close_fd(&connfd);
             return -1;
         }
-        sock_status = ucs_socket_recv(connfd, peer_worker_address, peer_worker_address_len);
-        if (sock_status != UCS_OK) {
-            priskv_log_error("UCX: recv peer address failed, status: %s\n",
-                             ucs_status_string(sock_status));
+        ret = priskv_safe_recv(connfd, peer_worker_address, peer_worker_address_len, NULL, NULL);
+        if (ret < 0) {
+            priskv_log_error("UCX: recv peer address failed: %m\n");
             ucs_close_fd(&connfd);
             return -1;
         }
@@ -478,19 +472,15 @@ again:
     connfd = accept(listener->listenfd, (struct sockaddr *)&client_addr, &client_addr_len);
     if (connfd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // no connection available, return
             return;
         } else if (errno == EINTR) {
-            // interrupted by signal, try again
             goto again;
         } else {
-            // other errors, log and return
             priskv_log_error("UCX: accept on listenfd %d failed: %m\n", listener->listenfd);
             return;
         }
     }
 
-    // got a connection
     priskv_inet_ntop(&client_addr, peer_addr);
     priskv_log_info("UCX: accept on listenfd %d, connfd %d, client addr %s\n", listener->listenfd,
                     connfd, peer_addr);

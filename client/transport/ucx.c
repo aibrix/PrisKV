@@ -303,9 +303,11 @@ static void priskv_ucx_recv_resp_cb(ucs_status_t status, ucp_tag_t sender_tag, s
         return;
     }
 
-    if (length != sizeof(priskv_response)) {
-        priskv_log_warn("UCX: recv %d, expected %ld\n", length, sizeof(priskv_response));
-        return;
+    if (ucs_unlikely(length != sizeof(priskv_response))) {
+        /* UCX 1.12 may provide unreliable `info->length` for tag recv callbacks.
+         * The response payload is a fixed-size struct, so keep going when UCS_OK. */
+        priskv_log_warn("UCX: recv %zu, expected %zu (continuing)\n", length,
+                        sizeof(priskv_response));
     }
 
     uint64_t request_id = be64toh(resp->request_id);
@@ -413,7 +415,6 @@ static int priskv_ucx_handshake(priskv_transport_conn *conn, ucp_address_t **add
                                 uint32_t *address_len)
 {
     int ret;
-    ucs_status_t status;
     uint8_t *peer_worker_address = NULL;
 
     size_t hs_size = sizeof(priskv_cm_ucx_handshake) + conn->worker->address_len;
@@ -446,21 +447,19 @@ static int priskv_ucx_handshake(priskv_transport_conn *conn, ucp_address_t **add
     hs->cap.max_inflight_command = htobe16(conn->param.max_inflight_command);
     hs->address_len = htobe32(conn->worker->address_len);
     memcpy(hs->address, conn->worker->address, conn->worker->address_len);
-    status = ucs_socket_send(conn->connfd, hs, hs_size);
+    ret = priskv_safe_send(conn->connfd, hs, hs_size, NULL, NULL);
     free(hs);
-    if (status != UCS_OK) {
-        priskv_log_error("UCX: failed to send capability to server, status: %s\n",
-                         ucs_status_string(status));
+    if (ret) {
+        priskv_log_error("UCX: failed to send capability to server\n");
         ret = -1;
         goto error;
     }
 
     /* receive response from server */
     priskv_cm_ucx_handshake peer_hs;
-    status = ucs_socket_recv(conn->connfd, &peer_hs, sizeof(peer_hs));
-    if (status != UCS_OK) {
-        priskv_log_error("UCX: failed to receive handshake msg from server, status: %s\n",
-                         ucs_status_string(status));
+    ret = priskv_safe_recv(conn->connfd, &peer_hs, sizeof(peer_hs), NULL, NULL);
+    if (ret) {
+        priskv_log_error("UCX: failed to receive handshake msg from server\n");
         ret = -1;
         goto error;
     }
@@ -493,10 +492,10 @@ static int priskv_ucx_handshake(priskv_transport_conn *conn, ucp_address_t **add
             ret = -1;
             goto error;
         }
-        status = ucs_socket_recv(conn->connfd, peer_worker_address, peer_worker_address_len);
-        if (status != UCS_OK) {
-            priskv_log_error("UCX: failed to receive peer_worker_address from server, status: %s\n",
-                             ucs_status_string(status));
+        ret = priskv_safe_recv(conn->connfd, peer_worker_address, peer_worker_address_len, NULL,
+                               NULL);
+        if (ret) {
+            priskv_log_error("UCX: failed to receive peer_worker_address from server\n");
             ret = -1;
             goto error;
         }

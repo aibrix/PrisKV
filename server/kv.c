@@ -954,10 +954,10 @@ int priskv_key_unpin_latest(void *_kv, void *_keynode)
     priskv_resp_status resp = priskv_pin_count_delta_latest(kv, node->key, node->keylen, -1, 0);
 
     /* Stats: count every UNPIN attempt; record not-closed cases. */
-        __sync_fetch_and_add(&kv->pin_stats.unpin_ops, 1);
-        if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
-            __sync_fetch_and_add(&kv->pin_stats.unpin_not_closed, 1);
-        }
+    __sync_fetch_and_add(&kv->pin_stats.unpin_ops, 1);
+    if (resp == PRISKV_RESP_STATUS_UNPIN_NOT_CLOSED) {
+        __sync_fetch_and_add(&kv->pin_stats.unpin_not_closed, 1);
+    }
     if (resp != PRISKV_RESP_STATUS_OK) {
         priskv_log_warn("KV: UNPIN_LATEST status=%d for node=%p (len=%u)\n", resp, (void *)node,
                         node->keylen);

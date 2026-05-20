@@ -89,8 +89,9 @@ int priskvClusterAsyncAlloc(priskvClusterClient *client, const char *key, uint64
 int priskvClusterAsyncSeal(priskvClusterClient *client, const char *key, const uint64_t *token,
                            bool pin_on_seal, uint64_t pin_ttl_ms, priskvClusterCallback cb,
                            void *cbarg);
-int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, bool pin_on_acquire,
-                              uint64_t pin_ttl_ms, priskvClusterZeroCopyCallback cb, void *cbarg);
+int priskvClusterAsyncAcquire(priskvClusterClient *client, const char *key, uint64_t timeout,
+                              bool pin_on_acquire, uint64_t pin_ttl_ms,
+                              priskvClusterZeroCopyCallback cb, void *cbarg);
 int priskvClusterAsyncRelease(priskvClusterClient *client, const char *key, const uint64_t *token,
                               bool unpin_key, priskvClusterCallback cb, void *cbarg);
 int priskvClusterAsyncDrop(priskvClusterClient *client, const char *key, const uint64_t *token,
@@ -105,7 +106,7 @@ priskvClusterStatus priskvClusterAlloc(priskvClusterClient *client, const char *
 priskvClusterStatus priskvClusterSeal(priskvClusterClient *client, const char *key,
                                       const uint64_t *token, bool pin_on_seal, uint64_t pin_ttl_ms);
 priskvClusterStatus priskvClusterAcquire(priskvClusterClient *client, const char *key,
-                                         uint64_t timeout, bool pin_on_acquire, uint64_t pin_ttl_ms, 
+                                         uint64_t timeout, bool pin_on_acquire, uint64_t pin_ttl_ms,
                                          uint64_t *addr_offset, uint32_t *valuelen);
 priskvClusterStatus priskvClusterRelease(priskvClusterClient *client, const char *key,
                                          const uint64_t *token, bool unpin_on_release);
@@ -121,5 +122,5 @@ priskvClusterStatus priskvClusterStatusFromPriskvStatus(priskv_status status);
 int priskvClusterAllocRegion(priskvClusterClient *client, const char *key, uint32_t alloc_length,
                              uint64_t timeout, priskv_memory_region *region);
 int priskvClusterAcquireRegion(priskvClusterClient *client, const char *key, uint64_t timeout,
-                               bool pin_on_acquire, uint64_t pin_ttl_ms, 
+                               bool pin_on_acquire, uint64_t pin_ttl_ms,
                                priskv_memory_region *region);

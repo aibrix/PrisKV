@@ -540,17 +540,18 @@ class PriskvClientTesting:
     def test_pin_ttl_expire_on_acquire(self):
         TEST_KEY = "py_pin_ttl_acquire"
         SIZE = 256
+        TIMEOUT = 3000
         # TTL is in milliseconds; sleep slightly longer than 1.5s to avoid clock granularity issues
         PIN_TTL_MS = 1500
         SLEEP_SEC = 1.6
 
-        status, region = self.client.alloc(TEST_KEY, SIZE, 3000)
+        status, region = self.client.alloc(TEST_KEY, SIZE, TIMEOUT)
         assert status == 0
         status = self.client.seal(TEST_KEY, region)
         assert status == 0
 
-        # ACQUIRE with PIN（with TTL）
-        status, acq = self.client.acquire(TEST_KEY, PIN_TTL_MS, True)
+        # ACQUIRE with PIN and explicit PIN TTL (transport timeout is TIMEOUT)
+        status, acq = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=True, pin_ttl_ms=PIN_TTL_MS)
         assert status == 0, f"acquire(pin ttl) failed: {status}"
 
         # wait TTL expired
@@ -560,7 +561,7 @@ class PriskvClientTesting:
         assert status == priskv.PRISKV_STATUS.PRISKV_STATUS_UNPIN_NOT_CLOSED, \
             f"expected UNPIN_NOT_CLOSED after TTL expiry, got {status}"
 
-        status2, acq2 = self.client.acquire(TEST_KEY, 0, False)
+        status2, acq2 = self.client.acquire(TEST_KEY, TIMEOUT, pin_on_acquire=False, pin_ttl_ms=0)
         assert status2 == priskv.PRISKV_STATUS.PRISKV_STATUS_OK
         status2 = self.client.release(TEST_KEY, acq2, unpin_on_release=True)
         assert status2 == priskv.PRISKV_STATUS.PRISKV_STATUS_UNPIN_NOT_CLOSED, \
